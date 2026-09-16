@@ -15,11 +15,57 @@ MarketMind is an Android app for monitoring stocks and cryptocurrencies, calcula
 - Periodic background updates with WorkManager
 - GitHub Actions APK builds
 
-## Development
+## Current project setup
 
-Open this repository in Android Studio and use JDK 17.
+- Android Gradle Plugin: 8.7.3
+- Kotlin: 2.0.21
+- Gradle: 8.9
+- JDK: 17
+- compileSdk / targetSdk: 35
+- minSdk: 26
+- Jetpack Compose + Material 3
 
-The NVIDIA API key will not be hardcoded into the application. It will be added through app configuration or a secure backend in a later step.
+## Build locally
+
+### Android Studio
+
+1. Install Android Studio and JDK 17.
+2. Clone this repository and open the repository folder in Android Studio.
+3. Let Gradle sync.
+4. Select an emulator or connected Android phone.
+5. Run the `app` configuration.
+6. To create an APK, use **Build → Build App Bundle(s) / APK(s) → Build APK(s)**.
+
+### Linux/macOS terminal
+
+The repository currently does not include the Gradle Wrapper, so install Gradle 8.9 first. Then run from the repository root:
+
+```bash
+gradle --version
+gradle assembleDebug
+```
+
+The debug APK will be created at:
+
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+For a release build:
+
+```bash
+gradle assembleRelease
+```
+
+A release APK is not signed for Play Store distribution yet; signing will be added later.
+
+## GitHub Actions
+
+Every push to `main`, pull request to `main`, or manual workflow run builds a debug APK. The workflow uses JDK 17 and Gradle 8.9 and uploads `app-debug.apk` as the `marketmind-debug-apk` artifact.
+
+## Security
+
+The NVIDIA API key will not be hardcoded into the application. It will be added through app configuration or, preferably, a secure backend in a later step.
 
 ## Status
 
