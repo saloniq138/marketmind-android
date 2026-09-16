@@ -66,7 +66,7 @@ private fun MarketMindApp() {
             }
             screen = "dashboard"
         }
-        "settings" -> SettingsScreen(settings, onBack = { screen = "dashboard" }) { refreshKey++ }
+        "settings" -> SettingsScreen(settings, repository, onBack = { screen = "dashboard" }) { refreshKey++ }
         else -> DashboardScreen(
             assets = watchlist,
             repository = repository,
@@ -258,13 +258,20 @@ private fun AddAssetScreen(onBack: () -> Unit, onAdd: (Asset) -> Unit) {
 }
 
 @Composable
-private fun SettingsScreen(settings: SettingsStore, onBack: () -> Unit, onSaved: () -> Unit) {
+private fun SettingsScreen(
+    settings: SettingsStore,
+    repository: MarketRepository,
+    onBack: () -> Unit,
+    onSaved: () -> Unit
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var apiKey by remember { mutableStateOf(settings.getNvidiaApiKey()) }
     var model by remember { mutableStateOf(settings.model()) }
     var minutes by remember { mutableStateOf(settings.refreshMinutes().toString()) }
     var notifications by remember { mutableStateOf(settings.notificationsEnabled()) }
-    var saveMessage by remember { mutableStateOf("") }
+    var apiStatus by remember { mutableStateOf(if (settings.hasNvidiaApiKey()) "Saved key — not tested yet." else "No API key saved yet.") }
+    var testing by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
@@ -281,11 +288,36 @@ private fun SettingsScreen(settings: SettingsStore, onBack: () -> Unit, onSaved:
             modifier = Modifier.fillMaxWidth()
         )
         Text(
-            if (settings.hasNvidiaApiKey()) "API key is saved securely on this device."
-            else "No API key saved yet.",
+            if (settings.hasNvidiaApiKey()) "API key is saved securely on this device." else "No API key saved yet.",
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(top = 6.dp)
         )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            apiStatus,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(vertical = 4.dp)
+        )
+        Button(
+            onClick = {
+                val normalized = apiKey.trim()
+                val saved = settings.saveNvidiaApiKey(normalized)
+                if (!saved) {
+                    apiStatus = "Save error: could not persist the NVIDIA API key."
+                    return@Button
+                }
+                testing = true
+                apiStatus = "Testing NVIDIA API…"
+                scope.launch {
+                    val result = repository.testNvidiaApi()
+                    testing = false
+                    apiStatus = result.message
+                }
+            },
+            enabled = !testing,
+            modifier = Modifier.fillMaxWidth()
+        ) { Text(if (testing) "Testing API…" else "Save & test NVIDIA API") }
+
         OutlinedTextField(
             model,
             { model = it },
@@ -316,9 +348,10 @@ private fun SettingsScreen(settings: SettingsStore, onBack: () -> Unit, onSaved:
         }
         Button(
             onClick = {
-                val saved = settings.saveNvidiaApiKey(apiKey)
+                val normalized = apiKey.trim()
+                val saved = settings.saveNvidiaApiKey(normalized)
                 if (!saved) {
-                    saveMessage = "Could not save the NVIDIA API key on this device."
+                    apiStatus = "Save error: could not persist the NVIDIA API key."
                     return@Button
                 }
                 settings.setModel(model.trim().ifBlank { "meta/llama-3.1-8b-instruct" })
@@ -330,15 +363,11 @@ private fun SettingsScreen(settings: SettingsStore, onBack: () -> Unit, onSaved:
                     ExistingPeriodicWorkPolicy.UPDATE,
                     PeriodicWorkRequestBuilder<MarketRefreshWorker>(period, TimeUnit.MINUTES).build()
                 )
-                saveMessage = "Settings saved."
                 onSaved()
                 onBack()
             },
             modifier = Modifier.fillMaxWidth()
-        ) { Text("Save settings") }
-        if (saveMessage.isNotBlank()) {
-            Text(saveMessage, Modifier.padding(top = 8.dp))
-        }
+        ) { Text("Save settings & close") }
         OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
             Text("Back")
         }
