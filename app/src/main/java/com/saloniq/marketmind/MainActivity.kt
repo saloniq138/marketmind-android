@@ -72,38 +72,76 @@ private fun MarketMindApp() {
             repository = repository,
             onAdd = { screen = "add" },
             onSettings = { screen = "settings" },
-            onRemove = { asset -> watchlist.remove(asset); settings.saveAssets(watchlist) },
+            onRemove = { asset ->
+                watchlist.remove(asset)
+                settings.saveAssets(watchlist)
+            },
             onRefresh = { refreshKey++ }
         )
     }
 }
 
 @Composable
-private fun DashboardScreen(assets: List<Asset>, repository: MarketRepository, onAdd: () -> Unit, onSettings: () -> Unit, onRemove: (Asset) -> Unit, onRefresh: () -> Unit) {
+private fun DashboardScreen(
+    assets: List<Asset>,
+    repository: MarketRepository,
+    onAdd: () -> Unit,
+    onSettings: () -> Unit,
+    onRemove: (Asset) -> Unit,
+    onRefresh: () -> Unit
+) {
     var aiText by remember { mutableStateOf("") }
     var aiLoading by remember { mutableStateOf(false) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Column { Text("MarketMind", style = MaterialTheme.typography.headlineMedium); Text("Stocks + crypto • NVIDIA NIM") }
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text("MarketMind", style = MaterialTheme.typography.headlineMedium)
+                Text("Stocks + crypto • NVIDIA NIM")
+            }
             OutlinedButton(onClick = onSettings) { Text("Settings") }
         }
-        LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text("Refresh market data") } }
+        LazyColumn(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
+                    Text("Refresh market data")
+                }
+            }
             items(assets, key = { it.symbol }) { asset ->
-                AssetCard(asset, repository.cachedQuote(asset.symbol), onAnalyze = {
-                    aiLoading = true
-                    scope.launch {
-                        val quote = withContext(Dispatchers.IO) { repository.fetchQuote(asset) }
-                        aiText = withContext(Dispatchers.IO) { repository.analyzeWithNvidia(asset, quote) }
-                        aiLoading = false
-                    }
-                }, onRemove = { onRemove(asset) })
+                AssetCard(
+                    asset = asset,
+                    quote = repository.cachedQuote(asset.symbol),
+                    onAnalyze = {
+                        aiLoading = true
+                        scope.launch {
+                            val quote = withContext(Dispatchers.IO) { repository.fetchQuote(asset) }
+                            aiText = withContext(Dispatchers.IO) {
+                                repository.analyzeWithNvidia(asset, quote)
+                            }
+                            aiLoading = false
+                        }
+                    },
+                    onRemove = { onRemove(asset) }
+                )
             }
             item {
-                Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("Add stock or crypto") }
-                if (aiLoading) Text("NVIDIA is analyzing…", Modifier.padding(top = 8.dp))
-                if (aiText.isNotBlank()) Card(Modifier.fillMaxWidth()) { Text(aiText, Modifier.padding(16.dp)) }
+                Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) {
+                    Text("Add stock or crypto")
+                }
+                if (aiLoading) {
+                    Text("NVIDIA is analyzing…", Modifier.padding(top = 8.dp))
+                }
+                if (aiText.isNotBlank()) {
+                    Card(Modifier.fillMaxWidth()) {
+                        Text(aiText, Modifier.padding(16.dp))
+                    }
+                }
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -111,20 +149,42 @@ private fun DashboardScreen(assets: List<Asset>, repository: MarketRepository, o
 }
 
 @Composable
-private fun AssetCard(asset: Asset, quote: Quote?, onAnalyze: () -> Unit, onRemove: () -> Unit) {
+private fun AssetCard(
+    asset: Asset,
+    quote: Quote?,
+    onAnalyze: () -> Unit,
+    onRemove: () -> Unit
+) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column { Text(asset.symbol, style = MaterialTheme.typography.titleLarge); Text(asset.name) }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(asset.symbol, style = MaterialTheme.typography.titleLarge)
+                    Text(asset.name)
+                }
                 Text(asset.type, style = MaterialTheme.typography.labelMedium)
             }
             Spacer(Modifier.height(10.dp))
-            Text("Price: ${quote?.price?.let { String.format("%.4f", it) } ?: "—"}", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Price: ${quote?.price?.let { String.format("%.4f", it) } ?: "—"}",
+                style = MaterialTheme.typography.bodyLarge
+            )
             Text("24h: ${quote?.change24h?.let { String.format("%+.2f%%", it) } ?: "—"}")
-            Text(quote?.signal ?: "Waiting for market data", style = MaterialTheme.typography.bodySmall)
+            Text(
+                quote?.signal ?: "Waiting for market data",
+                style = MaterialTheme.typography.bodySmall
+            )
             Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onAnalyze, modifier = Modifier.weight(1f)) { Text("AI analysis") }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(onClick = onAnalyze, modifier = Modifier.weight(1f)) {
+                    Text("AI analysis")
+                }
                 OutlinedButton(onClick = onRemove) { Text("Remove") }
             }
         }
@@ -141,18 +201,59 @@ private fun AddAssetScreen(onBack: () -> Unit, onAdd: (Asset) -> Unit) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Add asset", style = MaterialTheme.typography.headlineMedium)
         Text("Add stocks or crypto to your personal watchlist.", Modifier.padding(vertical = 8.dp))
-        OutlinedTextField(symbol, { symbol = it.uppercase() }, label = { Text("Ticker / symbol") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(name, { name = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            symbol,
+            { symbol = it.uppercase() },
+            label = { Text("Ticker / symbol") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            name,
+            { name = it },
+            label = { Text("Name") },
+            modifier = Modifier.fillMaxWidth()
+        )
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { type = "Stock" }) { Text("Stock") }
             OutlinedButton(onClick = { type = "Crypto" }) { Text("Crypto") }
         }
-        if (type == "Stock") OutlinedTextField(marketSymbol, { marketSymbol = it }, label = { Text("Market ticker, e.g. TSLA or CDR.WA") }, modifier = Modifier.fillMaxWidth())
-        else OutlinedTextField(coinId, { coinId = it.lowercase() }, label = { Text("CoinGecko ID, e.g. bitcoin") }, modifier = Modifier.fillMaxWidth())
+        if (type == "Stock") {
+            OutlinedTextField(
+                marketSymbol,
+                { marketSymbol = it },
+                label = { Text("Market ticker, e.g. TSLA or CDR.WA") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            OutlinedTextField(
+                coinId,
+                { coinId = it.lowercase() },
+                label = { Text("CoinGecko ID, e.g. bitcoin") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         Spacer(Modifier.height(16.dp))
-        Button(onClick = { if (symbol.isNotBlank()) onAdd(Asset(symbol, name.ifBlank { symbol }, type, marketSymbol.ifBlank { symbol }, coinId.ifBlank { null })) }, enabled = symbol.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Add to watchlist") }
-        OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+        Button(
+            onClick = {
+                if (symbol.isNotBlank()) {
+                    onAdd(
+                        Asset(
+                            symbol,
+                            name.ifBlank { symbol },
+                            type,
+                            marketSymbol.ifBlank { symbol },
+                            coinId.ifBlank { null }
+                        )
+                    )
+                }
+            },
+            enabled = symbol.isNotBlank(),
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Add to watchlist") }
+        OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
+            Text("Back")
+        }
     }
 }
 
@@ -165,24 +266,65 @@ private fun SettingsScreen(settings: SettingsStore, onBack: () -> Unit, onSaved:
     var notifications by remember { mutableStateOf(settings.notificationsEnabled()) }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
-        Text("NVIDIA NIM", style = MaterialTheme.typography.titleLarge, Modifier.padding(top = 16.dp))
-        OutlinedTextField(apiKey, { apiKey = it }, label = { Text("NVIDIA API key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(model, { model = it }, label = { Text("NIM model") }, modifier = Modifier.fillMaxWidth())
-        Text("Default: meta/llama-3.1-8b-instruct", style = MaterialTheme.typography.bodySmall)
+        Text(
+            "NVIDIA NIM",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(top = 16.dp)
+        )
+        OutlinedTextField(
+            apiKey,
+            { apiKey = it },
+            label = { Text("NVIDIA API key") },
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            model,
+            { model = it },
+            label = { Text("NIM model") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            "Default: meta/llama-3.1-8b-instruct",
+            style = MaterialTheme.typography.bodySmall
+        )
         HorizontalDivider(Modifier.padding(vertical = 16.dp))
         Text("Background refresh", style = MaterialTheme.typography.titleLarge)
-        OutlinedTextField(minutes, { minutes = it.filter(Char::isDigit) }, label = { Text("Minutes (15–1440)") }, modifier = Modifier.fillMaxWidth())
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Market notifications"); Switch(checked = notifications, onCheckedChange = { notifications = it }) }
-        Button(onClick = {
-            settings.saveNvidiaApiKey(apiKey.trim())
-            settings.setModel(model.trim().ifBlank { "meta/llama-3.1-8b-instruct" })
-            settings.setNotificationsEnabled(notifications)
-            val period = minutes.toLongOrNull()?.coerceIn(15L, 1440L) ?: 60L
-            settings.setRefreshMinutes(period)
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork("marketmind_refresh", ExistingPeriodicWorkPolicy.UPDATE, PeriodicWorkRequestBuilder<MarketRefreshWorker>(period, TimeUnit.MINUTES).build())
-            onSaved()
-            onBack()
-        }, modifier = Modifier.fillMaxWidth()) { Text("Save settings") }
-        OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+        OutlinedTextField(
+            minutes,
+            { minutes = it.filter(Char::isDigit) },
+            label = { Text("Minutes (15–1440)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Market notifications")
+            Switch(
+                checked = notifications,
+                onCheckedChange = { notifications = it }
+            )
+        }
+        Button(
+            onClick = {
+                settings.saveNvidiaApiKey(apiKey.trim())
+                settings.setModel(model.trim().ifBlank { "meta/llama-3.1-8b-instruct" })
+                settings.setNotificationsEnabled(notifications)
+                val period = minutes.toLongOrNull()?.coerceIn(15L, 1440L) ?: 60L
+                settings.setRefreshMinutes(period)
+                WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                    "marketmind_refresh",
+                    ExistingPeriodicWorkPolicy.UPDATE,
+                    PeriodicWorkRequestBuilder<MarketRefreshWorker>(period, TimeUnit.MINUTES).build()
+                )
+                onSaved()
+                onBack()
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Save settings") }
+        OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
+            Text("Back")
+        }
     }
 }
