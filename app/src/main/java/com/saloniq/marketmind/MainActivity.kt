@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -86,16 +85,17 @@ private fun MarketMindApp() {
                 ) {
                     Button(
                         onClick = { /* TODO: add asset screen */ },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Add asset")
                     }
-                    OutlinedButton(
-                        onClick = { /* TODO: settings */ },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Settings")
-                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { /* TODO: settings */ },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Settings")
                 }
                 Spacer(Modifier.height(16.dp))
             }
