@@ -168,72 +168,77 @@ private fun SettingsScreen(settings: SettingsStore, repository: MarketRepository
     var minutes by remember { mutableStateOf(settings.refreshMinutes().toString()) }
     var notifications by remember { mutableStateOf(settings.notificationsEnabled()) }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Settings", style = MaterialTheme.typography.headlineMedium)
-        Text("NVIDIA NIM", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 16.dp))
-        OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("NVIDIA API key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-        Text(if (settings.hasNvidiaApiKey()) "API key is saved securely on this device." else "No API key saved yet.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
-        Text(apiStatus, modifier = Modifier.padding(vertical = 8.dp))
-        Button(onClick = {
-            val key = apiKey.trim()
-            if (key.isEmpty()) { apiStatus = "Save error: NVIDIA API key is empty."; return@Button }
-            settings.setModel(model.trim().ifBlank { DEFAULT_NVIDIA_MODEL })
-            val result = settings.saveNvidiaApiKey(key)
-            if (result.isFailure) {
-                val e = result.exceptionOrNull()
-                apiStatus = "Save error: ${e?.javaClass?.simpleName}: ${e?.message ?: "unknown error"}"
-                return@Button
-            }
-            testing = true; apiStatus = "API key saved. Testing NVIDIA API…"
-            scope.launch {
-                val result2 = withContext(Dispatchers.IO) { repository.testNvidiaApi() }
-                testing = false; apiStatus = result2.message
-            }
-        }, enabled = !testing, modifier = Modifier.fillMaxWidth()) { Text(if (testing) "Testing API…" else "Save & test NVIDIA API") }
-
-        Spacer(Modifier.height(8.dp))
-        Text("NIM model", style = MaterialTheme.typography.titleMedium)
-        OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Model ID") }, modifier = Modifier.fillMaxWidth())
-        Text("Current default: $DEFAULT_NVIDIA_MODEL", style = MaterialTheme.typography.bodySmall)
-        Button(onClick = {
-            if (!settings.hasNvidiaApiKey()) { modelStatus = "Save an NVIDIA API key first."; return@Button }
-            loadingModels = true; modelStatus = "Loading available models from NVIDIA…"
-            scope.launch {
-                val result = withContext(Dispatchers.IO) { repository.fetchNvidiaModels() }
-                loadingModels = false; models = result.models; modelStatus = result.message
-            }
-        }, enabled = !loadingModels, modifier = Modifier.fillMaxWidth()) { Text(if (loadingModels) "Loading models…" else "Load available NVIDIA models") }
-        Text(modelStatus, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 4.dp))
-        if (models.isNotEmpty()) {
-            Text("Available chat models", style = MaterialTheme.typography.titleMedium)
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                models.forEach { id ->
-                    OutlinedButton(onClick = { model = id }, modifier = Modifier.fillMaxWidth()) { Text(if (id == model) "✓ $id" else id) }
-                }
-            }
-        }
-
-        HorizontalDivider(Modifier.padding(vertical = 16.dp))
-        Text("Background refresh", style = MaterialTheme.typography.titleLarge)
-        OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit) }, label = { Text("Minutes (15–1440)") }, modifier = Modifier.fillMaxWidth())
-        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) { Text("Market notifications"); Switch(checked = notifications, onCheckedChange = { notifications = it }) }
-        Button(onClick = {
-            val key = apiKey.trim()
-            if (key.isNotEmpty()) {
-                val save = settings.saveNvidiaApiKey(key)
-                if (save.isFailure) {
-                    val e = save.exceptionOrNull()
+    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            Text("Settings", style = MaterialTheme.typography.headlineMedium)
+            Text("NVIDIA NIM", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 16.dp))
+            OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("NVIDIA API key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+            Text(if (settings.hasNvidiaApiKey()) "API key is saved securely on this device." else "No API key saved yet.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+            Text(apiStatus, modifier = Modifier.padding(vertical = 8.dp))
+            Button(onClick = {
+                val key = apiKey.trim()
+                if (key.isEmpty()) { apiStatus = "Save error: NVIDIA API key is empty."; return@Button }
+                settings.setModel(model.trim().ifBlank { DEFAULT_NVIDIA_MODEL })
+                val result = settings.saveNvidiaApiKey(key)
+                if (result.isFailure) {
+                    val e = result.exceptionOrNull()
                     apiStatus = "Save error: ${e?.javaClass?.simpleName}: ${e?.message ?: "unknown error"}"
                     return@Button
                 }
+                testing = true; apiStatus = "API key saved. Testing NVIDIA API…"
+                scope.launch {
+                    val result2 = withContext(Dispatchers.IO) { repository.testNvidiaApi() }
+                    testing = false; apiStatus = result2.message
+                }
+            }, enabled = !testing, modifier = Modifier.fillMaxWidth()) { Text(if (testing) "Testing API…" else "Save & test NVIDIA API") }
+
+            Spacer(Modifier.height(8.dp))
+            Text("NIM model", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Model ID") }, modifier = Modifier.fillMaxWidth())
+            Text("Current default: $DEFAULT_NVIDIA_MODEL", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = {
+                if (!settings.hasNvidiaApiKey()) { modelStatus = "Save an NVIDIA API key first."; return@Button }
+                loadingModels = true; modelStatus = "Loading available models from NVIDIA…"
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) { repository.fetchNvidiaModels() }
+                    loadingModels = false; models = result.models; modelStatus = result.message
+                }
+            }, enabled = !loadingModels, modifier = Modifier.fillMaxWidth()) { Text(if (loadingModels) "Loading models…" else "Load available NVIDIA models") }
+            Text(modelStatus, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 4.dp))
+            if (models.isNotEmpty()) {
+                Text("Available chat models", style = MaterialTheme.typography.titleMedium)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    models.forEach { id ->
+                        OutlinedButton(onClick = { model = id }, modifier = Modifier.fillMaxWidth()) { Text(if (id == model) "✓ $id" else id) }
+                    }
+                }
             }
-            settings.setModel(model.trim().ifBlank { DEFAULT_NVIDIA_MODEL })
-            settings.setNotificationsEnabled(notifications)
-            val period = minutes.toLongOrNull()?.coerceIn(15L, 1440L) ?: 60L
-            settings.setRefreshMinutes(period)
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork("marketmind_refresh", ExistingPeriodicWorkPolicy.UPDATE, PeriodicWorkRequestBuilder<MarketRefreshWorker>(period, TimeUnit.MINUTES).build())
-            onSaved(); onBack()
-        }, modifier = Modifier.fillMaxWidth()) { Text("Save settings & close") }
-        OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            Text("Background refresh", style = MaterialTheme.typography.titleLarge)
+            OutlinedTextField(value = minutes, onValueChange = { minutes = it.filter(Char::isDigit) }, label = { Text("Minutes (15–1440)") }, modifier = Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) { Text("Market notifications"); Switch(checked = notifications, onCheckedChange = { notifications = it }) }
+        }
+        item { WidgetAppearanceControls() }
+        item {
+            Button(onClick = {
+                val key = apiKey.trim()
+                if (key.isNotEmpty()) {
+                    val save = settings.saveNvidiaApiKey(key)
+                    if (save.isFailure) {
+                        val e = save.exceptionOrNull()
+                        apiStatus = "Save error: ${e?.javaClass?.simpleName}: ${e?.message ?: "unknown error"}"
+                        return@Button
+                    }
+                }
+                settings.setModel(model.trim().ifBlank { DEFAULT_NVIDIA_MODEL })
+                settings.setNotificationsEnabled(notifications)
+                val period = minutes.toLongOrNull()?.coerceIn(15L, 1440L) ?: 60L
+                settings.setRefreshMinutes(period)
+                WorkManager.getInstance(context).enqueueUniquePeriodicWork("marketmind_refresh", ExistingPeriodicWorkPolicy.UPDATE, PeriodicWorkRequestBuilder<MarketRefreshWorker>(period, TimeUnit.MINUTES).build())
+                onSaved(); onBack()
+            }, modifier = Modifier.fillMaxWidth()) { Text("Save settings & close") }
+            OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+        }
     }
 }
