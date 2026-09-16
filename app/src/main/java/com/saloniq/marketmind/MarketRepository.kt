@@ -28,19 +28,19 @@ class MarketRepository(private val context: Context) {
         val item = JSONObject(body).optJSONObject(id) ?: return Quote(signal = "Crypto not found")
         val price = item.optDouble("usd").takeUnless { it.isNaN() }
         val change = item.optDouble("usd_24h_change").takeUnless { it.isNaN() }
-        return Quote(price, change, signalFromChange(change))
+        return Quote(price = price, change24h = change, signal = signalFromChange(change))
     }
 
     private fun fetchStock(asset: Asset): Quote {
         val encoded = asset.marketSymbol.replace("/", "%2F")
         val url = "https://query1.finance.yahoo.com/v8/finance/chart/$encoded?interval=1d&range=5d"
         val body = request(url) ?: return Quote(signal = "Stock data unavailable")
-        val result = JSONObject(body).getJSONArray("chart").getJSONObject(0)
+        val result = JSONObject(body).getJSONObject("chart").getJSONArray("result").getJSONObject(0)
         val meta = result.getJSONObject("meta")
         val price = meta.optDouble("regularMarketPrice").takeUnless { it.isNaN() }
         val previous = meta.optDouble("previousClose").takeUnless { it.isNaN() }
         val change = if (price != null && previous != null && previous != 0.0) (price - previous) / previous * 100.0 else null
-        return Quote(price, change, signalFromChange(change))
+        return Quote(price = price, change24h = change, signal = signalFromChange(change))
     }
 
     suspend fun analyzeWithNvidia(asset: Asset, quote: Quote): String = withContext(Dispatchers.IO) {
@@ -63,43 +63,57 @@ class MarketRepository(private val context: Context) {
         runCatching {
             client.newCall(request).execute().use { response ->
                 val text = response.body?.string().orEmpty()
-                if (!response.isSuccessful) "NVIDIA API error ${response.code}: ${JSONObject(text).optString("detail", "request failed")}" else
-                    JSONObject(text).getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content", "No analysis returned.")
+                if (!response.isSuccessful) "NVIDIA API error ${response.code}: $text"
+                else JSONObject(text).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
             }
-        }.getOrElse { "NVIDIA request failed: ${it.message ?: "unknown error"}" }
+        }.getOrElse { "NVIDIA analysis failed: ${it.message ?: "unknown error"}" }
     }
 
     suspend fun refreshAll() {
         val assets = settings.loadAssets()
-        val quotes = assets.associate { it.symbol to fetchQuote(it) }
-        context.getSharedPreferences("market_quotes", Context.MODE_PRIVATE).edit().apply {
-            quotes.forEach { (symbol, quote) ->
-                putString(symbol, JSONObject().put("price", quote.price).put("change", quote.change24h).put("signal", quote.signal).toString())
-            }
-        }.apply()
-        runCatching { MarketMindWidget().updateAll(context) }
+        for (asset in assets) {
+            val quote = fetchQuote(asset)
+            saveQuote(asset.symbol, quote)
+        }
+        MarketMindWidget().updateAll(context)
     }
 
     fun cachedQuote(symbol: String): Quote? {
-        val raw = context.getSharedPreferences("market_quotes", Context.MODE_PRIVATE).getString(symbol, null) ?: return null
+        val prefs = context.getSharedPreferences("market_quotes", Context.MODE_PRIVATE)
+        val raw = prefs.getString(symbol, null) ?: return null
         return runCatching {
             val json = JSONObject(raw)
-            Quote(json.optDouble("price").takeUnless { it.isNaN() }, json.optDouble("change").takeUnless { it.isNaN() }, signal = json.optString("signal"))
+            Quote(
+                price = if (json.has("price") && !json.isNull("price")) json.getDouble("price") else null,
+                change24h = if (json.has("change24h") && !json.isNull("change24h")) json.getDouble("change24h") else null,
+                signal = json.optString("signal", "Waiting for analysis"),
+                updatedAt = json.optLong("updatedAt", System.currentTimeMillis())
+            )
         }.getOrNull()
     }
 
+    private fun saveQuote(symbol: String, quote: Quote) {
+        val json = JSONObject()
+            .put("price", quote.price)
+            .put("change24h", quote.change24h)
+            .put("signal", quote.signal)
+            .put("updatedAt", quote.updatedAt)
+        context.getSharedPreferences("market_quotes", Context.MODE_PRIVATE)
+            .edit().putString(symbol, json.toString()).apply()
+    }
+
     private fun request(url: String): String? = runCatching {
-        client.newCall(Request.Builder().url(url).addHeader("User-Agent", "MarketMind/1.0").build()).execute().use { response ->
+        client.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
             if (response.isSuccessful) response.body?.string() else null
         }
     }.getOrNull()
 
     private fun signalFromChange(change: Double?): String = when {
-        change == null -> "Waiting for data"
-        change <= -5.0 -> "Large move down — review risk"
-        change <= -2.0 -> "Down — watch technicals"
-        change >= 5.0 -> "Large move up — avoid chasing"
-        change >= 2.0 -> "Up — watch momentum"
-        else -> "Neutral — monitor"
+        change == null -> "Waiting for analysis"
+        change >= 3.0 -> "Strong upward move"
+        change >= 0.5 -> "Upward move"
+        change <= -3.0 -> "Strong downward move"
+        change <= -0.5 -> "Downward move"
+        else -> "Mostly unchanged"
     }
 }
