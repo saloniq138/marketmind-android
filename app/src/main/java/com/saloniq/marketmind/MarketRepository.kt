@@ -15,6 +15,48 @@ class MarketRepository(private val context: Context) {
     private val settings = SettingsStore(context)
     private val client = OkHttpClient.Builder().callTimeout(20, TimeUnit.SECONDS).build()
 
+    suspend fun testNvidiaApi(): NvidiaApiResult = withContext(Dispatchers.IO) {
+        val key = settings.getNvidiaApiKey().trim()
+        if (key.isBlank()) return@withContext NvidiaApiResult(false, "No NVIDIA API key is saved.")
+
+        val payload = JSONObject()
+            .put("model", settings.model())
+            .put("temperature", 0.0)
+            .put("max_tokens", 1)
+            .put("messages", org.json.JSONArray()
+                .put(JSONObject().put("role", "user").put("content", "Reply with OK.")))
+
+        val request = Request.Builder()
+            .url("https://integrate.api.nvidia.com/v1/chat/completions")
+            .addHeader("Authorization", "Bearer $key")
+            .addHeader("Accept", "application/json")
+            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+
+        runCatching {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (response.isSuccessful) {
+                    NvidiaApiResult(true, "API OK — NVIDIA NIM is reachable and the key is valid.")
+                } else {
+                    NvidiaApiResult(false, formatNvidiaError(response.code, body))
+                }
+            }
+        }.getOrElse { error ->
+            NvidiaApiResult(false, "Connection error: ${error.message ?: "unknown network error"}")
+        }
+    }
+
+    private fun formatNvidiaError(code: Int, body: String): String {
+        val detail = runCatching {
+            val json = JSONObject(body)
+            json.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }
+                ?: json.optString("message").takeIf { it.isNotBlank() }
+        }.getOrNull()
+        return if (detail != null) "NVIDIA API error $code: $detail"
+        else "NVIDIA API error $code: ${body.take(300).ifBlank { "no error details returned" }}"
+    }
+
     suspend fun fetchQuote(asset: Asset): Quote = withContext(Dispatchers.IO) {
         runCatching {
             if (asset.type == "Crypto") fetchCrypto(asset) else fetchStock(asset)
@@ -63,7 +105,7 @@ class MarketRepository(private val context: Context) {
         runCatching {
             client.newCall(request).execute().use { response ->
                 val text = response.body?.string().orEmpty()
-                if (!response.isSuccessful) "NVIDIA API error ${response.code}: $text"
+                if (!response.isSuccessful) formatNvidiaError(response.code, text)
                 else JSONObject(text).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
             }
         }.getOrElse { "NVIDIA analysis failed: ${it.message ?: "unknown error"}" }
@@ -117,3 +159,5 @@ class MarketRepository(private val context: Context) {
         else -> "Mostly unchanged"
     }
 }
+
+data class NvidiaApiResult(val success: Boolean, val message: String)
