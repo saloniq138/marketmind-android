@@ -29,6 +29,11 @@ import androidx.compose.ui.unit.sp
 import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.launch
 
+private fun applyAlpha(hex: String, alphaPercent: Int): String = runCatching {
+    val color = AndroidColor.parseColor(hex)
+    String.format("#%02X%02X%02X%02X", (alphaPercent.coerceIn(0, 100) * 255 / 100), AndroidColor.red(color), AndroidColor.green(color), AndroidColor.blue(color))
+}.getOrDefault(hex)
+
 @Composable
 fun WidgetAppearanceControls() {
     val context = LocalContext.current
@@ -49,7 +54,7 @@ fun WidgetAppearanceControls() {
             return
         }
         val updated = settings.copy(
-            backgroundColor = backgroundHex,
+            backgroundColor = applyAlpha(backgroundHex, settings.backgroundAlpha),
             textColor = textHex,
             accentColor = accentHex,
             positiveColor = positiveHex,
@@ -57,6 +62,7 @@ fun WidgetAppearanceControls() {
         )
         store.save(updated)
         settings = updated
+        backgroundHex = updated.backgroundColor
         status = "Widget appearance saved."
         scope.launch {
             MarketMindWidget().updateAll(context)
@@ -71,7 +77,7 @@ fun WidgetAppearanceControls() {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Live preview", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-                val previewBg = runCatching { Color(AndroidColor.parseColor(backgroundHex)) }.getOrDefault(Color(0xFF111111))
+                val previewBg = runCatching { Color(AndroidColor.parseColor(applyAlpha(backgroundHex, settings.backgroundAlpha))) }.getOrDefault(Color(0xFF111111))
                 val previewText = runCatching { Color(AndroidColor.parseColor(textHex)) }.getOrDefault(Color.White)
                 val previewAccent = runCatching { Color(AndroidColor.parseColor(accentHex)) }.getOrDefault(Color(0xFF64B5F6))
                 Column(
