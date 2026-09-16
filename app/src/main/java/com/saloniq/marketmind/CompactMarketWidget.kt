@@ -1,6 +1,7 @@
 package com.saloniq.marketmind
 
 import android.content.Context
+import android.graphics.Color as AndroidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -19,7 +20,11 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 
-private fun compactColor(value: String): Color = runCatching { Color(android.graphics.Color.parseColor(value)) }.getOrDefault(Color.White)
+private fun compactColor(value: String, alphaPercent: Int? = null): Color = runCatching {
+    val parsed = AndroidColor.parseColor(value)
+    val alpha = alphaPercent?.let { (it.coerceIn(0, 100) * 255 / 100) } ?: AndroidColor.alpha(parsed)
+    Color(AndroidColor.argb(alpha, AndroidColor.red(parsed), AndroidColor.green(parsed), AndroidColor.blue(parsed)))
+}.getOrDefault(Color.White)
 
 class CompactMarketWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -33,7 +38,7 @@ class CompactMarketWidget : GlanceAppWidget() {
             val accentColor = compactColor(settings.accentColor)
             val positiveColor = compactColor(settings.positiveColor)
             val negativeColor = compactColor(settings.negativeColor)
-            val backgroundColor = compactColor(settings.backgroundColor)
+            val backgroundColor = compactColor(settings.backgroundColor, settings.backgroundAlpha)
             val change = quote?.change24h
             Column(
                 GlanceModifier
