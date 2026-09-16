@@ -264,6 +264,8 @@ private fun SettingsScreen(settings: SettingsStore, onBack: () -> Unit, onSaved:
     var model by remember { mutableStateOf(settings.model()) }
     var minutes by remember { mutableStateOf(settings.refreshMinutes().toString()) }
     var notifications by remember { mutableStateOf(settings.notificationsEnabled()) }
+    var saveMessage by remember { mutableStateOf("") }
+
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Text(
@@ -277,6 +279,12 @@ private fun SettingsScreen(settings: SettingsStore, onBack: () -> Unit, onSaved:
             label = { Text("NVIDIA API key") },
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            if (settings.hasNvidiaApiKey()) "API key is saved securely on this device."
+            else "No API key saved yet.",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 6.dp)
         )
         OutlinedTextField(
             model,
@@ -308,7 +316,11 @@ private fun SettingsScreen(settings: SettingsStore, onBack: () -> Unit, onSaved:
         }
         Button(
             onClick = {
-                settings.saveNvidiaApiKey(apiKey.trim())
+                val saved = settings.saveNvidiaApiKey(apiKey)
+                if (!saved) {
+                    saveMessage = "Could not save the NVIDIA API key on this device."
+                    return@Button
+                }
                 settings.setModel(model.trim().ifBlank { "meta/llama-3.1-8b-instruct" })
                 settings.setNotificationsEnabled(notifications)
                 val period = minutes.toLongOrNull()?.coerceIn(15L, 1440L) ?: 60L
@@ -318,11 +330,15 @@ private fun SettingsScreen(settings: SettingsStore, onBack: () -> Unit, onSaved:
                     ExistingPeriodicWorkPolicy.UPDATE,
                     PeriodicWorkRequestBuilder<MarketRefreshWorker>(period, TimeUnit.MINUTES).build()
                 )
+                saveMessage = "Settings saved."
                 onSaved()
                 onBack()
             },
             modifier = Modifier.fillMaxWidth()
         ) { Text("Save settings") }
+        if (saveMessage.isNotBlank()) {
+            Text(saveMessage, Modifier.padding(top = 8.dp))
+        }
         OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
             Text("Back")
         }
