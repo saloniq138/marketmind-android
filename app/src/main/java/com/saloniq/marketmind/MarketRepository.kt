@@ -8,12 +8,83 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class MarketRepository(private val context: Context) {
     private val settings = SettingsStore(context)
     private val client = OkHttpClient.Builder().callTimeout(20, TimeUnit.SECONDS).build()
+
+    suspend fun fetchNvidiaModels(): NvidiaModelsResult = withContext(Dispatchers.IO) {
+        val key = settings.getNvidiaApiKey().trim()
+        if (key.isBlank()) {
+            return@withContext NvidiaModelsResult(
+                false,
+                emptyList(),
+                "Add your NVIDIA API key first."
+            )
+        }
+
+        val request = Request.Builder()
+            .url("https://integrate.api.nvidia.com/v1/models")
+            .addHeader("Authorization", "Bearer $key")
+            .addHeader("Accept", "application/json")
+            .get()
+            .build()
+
+        runCatching {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    return@use NvidiaModelsResult(
+                        false,
+                        emptyList(),
+                        formatNvidiaError(response.code, body)
+                    )
+                }
+
+                val models = runCatching {
+                    val data = JSONObject(body).optJSONArray("data") ?: JSONArray()
+                    buildList {
+                        for (i in 0 until data.length()) {
+                            val id = data.optJSONObject(i)?.optString("id").orEmpty()
+                            if (id.isNotBlank() && isChatModel(id)) add(id)
+                        }
+                    }.distinct().sorted()
+                }.getOrDefault(emptyList())
+
+                if (models.isEmpty()) {
+                    NvidiaModelsResult(
+                        false,
+                        emptyList(),
+                        "NVIDIA returned no compatible chat models."
+                    )
+                } else {
+                    NvidiaModelsResult(
+                        true,
+                        models,
+                        "Found ${models.size} compatible NVIDIA NIM models."
+                    )
+                }
+            }
+        }.getOrElse { error ->
+            NvidiaModelsResult(
+                false,
+                emptyList(),
+                "Connection error: ${error.message ?: "unknown network error"}"
+            )
+        }
+    }
+
+    private fun isChatModel(id: String): Boolean {
+        val value = id.lowercase()
+        val excluded = listOf(
+            "embed", "rerank", "tts", "asr", "ocr", "translate",
+            "safety", "guard", "parse", "image", "video", "vision"
+        )
+        return excluded.none { value.contains(it) }
+    }
 
     suspend fun testNvidiaApi(): NvidiaApiResult = withContext(Dispatchers.IO) {
         val key = settings.getNvidiaApiKey().trim()
@@ -23,7 +94,7 @@ class MarketRepository(private val context: Context) {
             .put("model", settings.model())
             .put("temperature", 0.0)
             .put("max_tokens", 1)
-            .put("messages", org.json.JSONArray()
+            .put("messages", JSONArray()
                 .put(JSONObject().put("role", "user").put("content", "Reply with OK.")))
 
         val request = Request.Builder()
@@ -37,7 +108,7 @@ class MarketRepository(private val context: Context) {
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (response.isSuccessful) {
-                    NvidiaApiResult(true, "API OK — NVIDIA NIM is reachable and the key is valid.")
+                    NvidiaApiResult(true, "API OK — NVIDIA NIM is reachable and the selected model works.")
                 } else {
                     NvidiaApiResult(false, formatNvidiaError(response.code, body))
                 }
@@ -93,7 +164,7 @@ class MarketRepository(private val context: Context) {
             .put("model", settings.model())
             .put("temperature", 0.2)
             .put("max_tokens", 300)
-            .put("messages", org.json.JSONArray()
+            .put("messages", JSONArray()
                 .put(JSONObject().put("role", "system").put("content", "You are a financial market analysis assistant. Be concise, evidence-aware and clearly state uncertainty."))
                 .put(JSONObject().put("role", "user").put("content", prompt)))
         val request = Request.Builder()
@@ -161,3 +232,4 @@ class MarketRepository(private val context: Context) {
 }
 
 data class NvidiaApiResult(val success: Boolean, val message: String)
+data class NvidiaModelsResult(val success: Boolean, val models: List<String>, val message: String)
