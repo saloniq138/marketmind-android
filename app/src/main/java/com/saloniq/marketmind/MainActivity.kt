@@ -5,7 +5,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -57,7 +56,6 @@ private fun MarketMindApp() {
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -79,16 +77,11 @@ private fun MarketMindApp() {
             }
 
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Button(
+                    onClick = { /* TODO: add asset screen */ },
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Button(
-                        onClick = { /* TODO: add asset screen */ },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Add asset")
-                    }
+                    Text("Add asset")
                 }
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
@@ -107,7 +100,7 @@ private fun MarketMindApp() {
 private fun AssetCard(asset: Asset) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
-            Row(
+            androidx.compose.foundation.layout.Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
