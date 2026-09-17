@@ -25,14 +25,14 @@ import androidx.glance.unit.ColorProvider
 
 private fun widgetColor(value: String, alphaPercent: Int? = null): Color = runCatching {
     val parsed = AndroidColor.parseColor(value)
-    val alpha = alphaPercent?.let { (it.coerceIn(0, 100) * 255 / 100) } ?: AndroidColor.alpha(parsed)
+    val alpha = alphaPercent?.let { it.coerceIn(0, 100) * 255 / 100 } ?: AndroidColor.alpha(parsed)
     Color(AndroidColor.argb(alpha, AndroidColor.red(parsed), AndroidColor.green(parsed), AndroidColor.blue(parsed)))
 }.getOrDefault(Color.White)
 
 class MarketMindWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
-            val settings = WidgetSettingsStore(context).load()
+            val settings = WidgetSettingsStore(context).load("market")
             val repository = MarketRepository(context)
             val assets = SettingsStore(context).loadAssets().take(5)
             val textColor = widgetColor(settings.textColor)
@@ -40,19 +40,11 @@ class MarketMindWidget : GlanceAppWidget() {
             val positiveColor = widgetColor(settings.positiveColor)
             val negativeColor = widgetColor(settings.negativeColor)
             val backgroundColor = widgetColor(settings.backgroundColor, settings.backgroundAlpha)
-            val base = GlanceModifier
-                .fillMaxSize()
-                .padding(settings.padding.dp)
-                .background(ColorProvider(backgroundColor))
-                .clickable(actionStartActivity<MainActivity>())
+            val base = GlanceModifier.fillMaxSize().padding(settings.padding.dp).background(ColorProvider(backgroundColor)).clickable(actionStartActivity<MainActivity>())
             val normalStyle = TextStyle(color = ColorProvider(textColor), fontSize = settings.textSize.sp)
             val priceStyle = TextStyle(color = ColorProvider(textColor), fontSize = settings.priceSize.sp)
-            val changePositive = TextStyle(color = ColorProvider(positiveColor), fontSize = settings.changeSize.sp)
-            val changeNegative = TextStyle(color = ColorProvider(negativeColor), fontSize = settings.changeSize.sp)
-            val accentStyle = TextStyle(color = ColorProvider(accentColor), fontSize = settings.textSize.sp)
-
             Column(base) {
-                Text("MarketMind", style = accentStyle)
+                Text("MarketMind", style = TextStyle(color = ColorProvider(accentColor), fontSize = settings.textSize.sp))
                 assets.forEach { asset ->
                     val quote = repository.cachedQuote(asset.symbol)
                     Column(GlanceModifier.padding(top = 6.dp)) {
@@ -64,7 +56,7 @@ class MarketMindWidget : GlanceAppWidget() {
                             Spacer(GlanceModifier.width(8.dp))
                             if (settings.showChange) {
                                 val change = quote?.change24h
-                                Text(change?.let { String.format("%+.2f%%", it) } ?: "—", style = if ((change ?: 0.0) >= 0) changePositive else changeNegative)
+                                Text(change?.let { String.format("%+.2f%%", it) } ?: "—", style = TextStyle(color = ColorProvider(if ((change ?: 0.0) >= 0) positiveColor else negativeColor), fontSize = settings.changeSize.sp))
                             }
                         }
                         if (settings.showSignal && !quote?.signal.isNullOrBlank()) Text(quote?.signal ?: "", style = normalStyle)
