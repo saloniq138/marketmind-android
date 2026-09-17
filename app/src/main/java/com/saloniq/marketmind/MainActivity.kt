@@ -152,7 +152,7 @@ private fun SettingsScreen(settings: SettingsStore, repository: MarketRepository
     var model by remember { mutableStateOf(ai.model()) }
     var models by remember { mutableStateOf(listOf<String>()) }
     var modelStatus by remember { mutableStateOf("Load models after saving your API key.") }
-    var apiStatus by remember { mutableStateOf(if (ai.hasKey()) "Saved key — not tested yet." else "No API key saved yet.") }
+    var apiStatus by remember { mutableStateOf(if (ai.hasKey()) "Saved key(s) — not tested yet." else "No API key saved yet.") }
     var testing by remember { mutableStateOf(false) }
     var loadingModels by remember { mutableStateOf(false) }
     var minutes by remember { mutableStateOf(settings.refreshMinutes().toString()) }
@@ -165,7 +165,7 @@ private fun SettingsScreen(settings: SettingsStore, repository: MarketRepository
         model = ai.model()
         models = emptyList()
         modelStatus = "Save the ${next.label} key, then load its models."
-        apiStatus = if (ai.hasKey()) "Saved key — not tested yet." else "No ${next.label} API key saved."
+        apiStatus = if (ai.hasKey()) "${ai.getKeys().size} saved key(s) — ready for automatic failover." else "No ${next.label} API key saved."
     }
 
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -179,7 +179,10 @@ private fun SettingsScreen(settings: SettingsStore, repository: MarketRepository
                     else OutlinedButton(onClick = { switchProvider(option) }, modifier = Modifier.weight(1f)) { Text(option.label) }
                 }
             }
-            OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("${provider.label} API key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+
+            AiKeyPoolControls(ai, provider) { apiStatus = it }
+
+            OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("Quick test / add ${provider.label} API key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
             Text(apiStatus, modifier = Modifier.padding(vertical = 8.dp))
             Button(onClick = {
                 val key = apiKey.trim()
