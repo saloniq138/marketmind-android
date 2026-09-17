@@ -20,53 +20,73 @@ class AiClient(context: Context) {
 
     suspend fun test(): AiApiResult = withContext(Dispatchers.IO) {
         val provider = settings.provider()
-        val key = settings.getKey().trim()
-        if (key.isBlank()) return@withContext AiApiResult(false, "No ${provider.label} API key is saved.")
-        val request = requestFor("Reply with OK.", test = true, provider = provider, key = key)
-        runCatching { client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (response.isSuccessful) AiApiResult(true, "API OK — ${provider.label} works with ${settings.model()}.")
-            else AiApiResult(false, "${provider.label} API error ${response.code}: ${errorMessage(body)}")
-        }}.getOrElse { AiApiResult(false, "Connection error: ${it.message ?: "unknown network error"}") }
+        val keys = settings.getKeys()
+        if (keys.isEmpty()) return@withContext AiApiResult(false, "No ${provider.label} API keys are saved.")
+        var last = "No API response."
+        keys.forEachIndexed { index, key ->
+            if (index > 0 && !shouldFailover(last)) return@withContext AiApiResult(false, last)
+            val response = execute(requestFor("Reply with OK.", true, provider, key))
+            if (response.success) return@withContext AiApiResult(true, if (index == 0) "API OK — ${provider.label} works with ${settings.model()}." else "API OK — automatically switched to backup key #${index + 1}.")
+            last = "${provider.label} API error ${response.code}: ${response.message}"
+        }
+        AiApiResult(false, "All ${provider.label} API keys failed. Last error: $last")
     }
 
     suspend fun models(): AiModelsResult = withContext(Dispatchers.IO) {
         val provider = settings.provider()
-        val key = settings.getKey().trim()
-        if (key.isBlank()) return@withContext AiModelsResult(false, emptyList(), "Save an API key first.")
-        val request = Request.Builder().url("${provider.baseUrl}/models").addHeader("Authorization", "Bearer $key").get().build()
-        runCatching { client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) return@use AiModelsResult(false, emptyList(), "${provider.label} API error ${response.code}: ${errorMessage(body)}")
-            val data = JSONObject(body).optJSONArray("data") ?: JSONArray()
-            val models = buildList {
-                for (i in 0 until data.length()) {
-                    val id = data.optJSONObject(i)?.optString("id").orEmpty()
-                    if (id.isNotBlank() && isTextModel(id)) add(id)
-                }
-            }.distinct().sorted()
-            if (models.isEmpty()) AiModelsResult(false, emptyList(), "No compatible text models returned.")
-            else AiModelsResult(true, models, "Found ${models.size} compatible models.")
-        }}.getOrElse { AiModelsResult(false, emptyList(), "Connection error: ${it.message ?: "unknown network error"}") }
+        val keys = settings.getKeys()
+        if (keys.isEmpty()) return@withContext AiModelsResult(false, emptyList(), "Save at least one API key first.")
+        var last = "No API response."
+        keys.forEachIndexed { index, key ->
+            val response = execute(Request.Builder().url("${provider.baseUrl}/models").addHeader("Authorization", "Bearer $key").get().build())
+            if (response.success) {
+                val data = JSONObject(response.body).optJSONArray("data") ?: JSONArray()
+                val models = buildList {
+                    for (i in 0 until data.length()) {
+                        val id = data.optJSONObject(i)?.optString("id").orEmpty()
+                        if (id.isNotBlank() && isTextModel(id)) add(id)
+                    }
+                }.distinct().sorted()
+                return@withContext if (models.isEmpty()) AiModelsResult(false, emptyList(), "No compatible text models returned.")
+                else AiModelsResult(true, models, if (index == 0) "Found ${models.size} compatible models." else "Found ${models.size} models using backup API key #${index + 1}.")
+            }
+            last = "${provider.label} API error ${response.code}: ${response.message}"
+            if (!shouldFailover(last)) return@withContext AiModelsResult(false, emptyList(), last)
+        }
+        AiModelsResult(false, emptyList(), "All ${provider.label} API keys failed. Last error: $last")
     }
 
     suspend fun analyze(asset: Asset, quote: Quote): String = withContext(Dispatchers.IO) {
         val provider = settings.provider()
-        val key = settings.getKey().trim()
-        if (key.isBlank()) return@withContext "Add a ${provider.label} API key in Settings to enable AI analysis."
+        val keys = settings.getKeys()
+        if (keys.isEmpty()) return@withContext "Add at least one ${provider.label} API key in Settings to enable AI analysis."
         val prompt = "Analyze ${asset.name} (${asset.symbol}). Current price: ${quote.price ?: "unknown"}. 24h change: ${quote.change24h ?: "unknown"}%. Give a short factual market summary, risks, and technical considerations. Do not present it as guaranteed investment advice."
-        val request = requestFor(prompt, test = false, provider = provider, key = key)
-        runCatching { client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) "${provider.label} error ${response.code}: ${errorMessage(body)}"
-            else parseText(body, provider)
-        }}.getOrElse { "${provider.label} analysis failed: ${it.message ?: "unknown error"}" }
+        var last = "No API response."
+        keys.forEachIndexed { index, key ->
+            val response = execute(requestFor(prompt, false, provider, key))
+            if (response.success) {
+                return@withContext runCatching { parseText(response.body, provider) }.getOrElse { "${provider.label} returned an unreadable response." } +
+                    if (index > 0) "\n\n(Auto-switched to backup API key #${index + 1}.)" else ""
+            }
+            last = "${provider.label} error ${response.code}: ${response.message}"
+            if (!shouldFailover(last)) return@withContext last
+        }
+        "All ${provider.label} API keys failed. Last error: $last"
     }
+
+    private data class HttpResult(val success: Boolean, val code: Int, val body: String, val message: String)
+
+    private fun execute(request: Request): HttpResult = runCatching {
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            HttpResult(response.isSuccessful, response.code, body, if (response.isSuccessful) "" else errorMessage(body))
+        }
+    }.getOrElse { HttpResult(false, -1, "", it.message ?: "unknown network error") }
 
     private fun requestFor(prompt: String, test: Boolean, provider: AiProvider, key: String): Request {
         return if (provider == AiProvider.OPENAI) {
             val payload = JSONObject().put("model", settings.model()).put("input", prompt)
-            Request.Builder().url("https://api.openai.com/v1/responses").addHeader("Authorization", "Bearer $key").addHeader("Accept", "application/json")
+            Request.Builder().url("${provider.baseUrl}/responses").addHeader("Authorization", "Bearer $key").addHeader("Accept", "application/json")
                 .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
         } else {
             val payload = JSONObject().put("model", settings.model()).put("temperature", if (test) 0.0 else 0.2).put("max_tokens", if (test) 1 else 300)
@@ -98,6 +118,11 @@ class AiClient(context: Context) {
     private fun isTextModel(id: String): Boolean {
         val v = id.lowercase()
         return listOf("embed", "rerank", "tts", "asr", "ocr", "translate", "safety", "guard", "image", "video").none { v.contains(it) }
+    }
+
+    private fun shouldFailover(message: String): Boolean {
+        val lower = message.lowercase()
+        return listOf("api error 401", "api error 403", "api error 408", "api error 409", "api error 429", "api error 500", "api error 502", "api error 503", "api error 504", "connection error", "timeout").any { lower.contains(it) }
     }
 
     private fun errorMessage(body: String): String = runCatching {
