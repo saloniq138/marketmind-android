@@ -45,7 +45,7 @@ class AiProviderSettings(context: Context) {
         val keys = getKeys()
         if (keys.any { it == clean }) return Result.success(Unit)
         return runCatching {
-            val index = prefs.getInt("key_count_${p.name}", 0)
+            val index = keys.size
             encryptInto("key_${p.name}_$index", clean)
             check(prefs.edit().putInt("key_count_${p.name}", index + 1).commit())
         }
@@ -56,12 +56,15 @@ class AiProviderSettings(context: Context) {
         val keys = getKeys().toMutableList()
         if (index !in keys.indices) return false
         keys.removeAt(index)
+        val oldCount = prefs.getInt("key_count_${p.name}", 0)
         val editor = prefs.edit()
-        (0 until prefs.getInt("key_count_${p.name}", 0)).forEach { i ->
+        (0 until oldCount).forEach { i ->
             editor.remove("key_${p.name}_$i_data").remove("key_${p.name}_$i_iv")
         }
         keys.forEachIndexed { i, key ->
-            runCatching { encryptInto("key_${p.name}_$i", key) }.getOrThrow()
+            val encrypted = encryptValue(key)
+            editor.putString("key_${p.name}_${i}_data", encrypted.first)
+            editor.putString("key_${p.name}_${i}_iv", encrypted.second)
         }
         return editor.putInt("key_count_${p.name}", keys.size).commit()
     }
@@ -76,14 +79,16 @@ class AiProviderSettings(context: Context) {
         }
     }
 
-    private fun encryptInto(name: String, value: String) {
+    private fun encryptValue(value: String): Pair<String, String> {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, secretKey())
         val encrypted = cipher.doFinal(value.toByteArray(StandardCharsets.UTF_8))
-        check(prefs.edit()
-            .putString("${name}_data", Base64.encodeToString(encrypted, Base64.NO_WRAP))
-            .putString("${name}_iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-            .commit())
+        return Base64.encodeToString(encrypted, Base64.NO_WRAP) to Base64.encodeToString(cipher.iv, Base64.NO_WRAP)
+    }
+
+    private fun encryptInto(name: String, value: String) {
+        val encrypted = encryptValue(value)
+        check(prefs.edit().putString("${name}_data", encrypted.first).putString("${name}_iv", encrypted.second).commit())
     }
 
     private fun getEncrypted(name: String): String {
