@@ -1,6 +1,7 @@
 package com.saloniq.marketmind
 
 import android.content.Context
+import android.graphics.Color as AndroidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -25,133 +26,57 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
-private val widgetWhite = ColorProvider(Color.White)
-private val widgetAccent = ColorProvider(Color(0xFF64B5F6))
-private val widgetPositive = ColorProvider(Color(0xFF4CAF50))
-private val widgetNegative = ColorProvider(Color(0xFFF44336))
-private val widgetBackground = ColorProvider(Color(0xFF111111))
+private fun wc(value: String, alpha: Int? = null): Color = runCatching {
+    val p = AndroidColor.parseColor(value)
+    Color(AndroidColor.argb(alpha?.coerceIn(0,100)?.times(255)?.div(100) ?: AndroidColor.alpha(p), AndroidColor.red(p), AndroidColor.green(p), AndroidColor.blue(p)))
+}.getOrDefault(Color.White)
 
-private fun baseWidget() = GlanceModifier
-    .fillMaxSize()
-    .padding(16.dp)
-    .background(widgetBackground)
-    .clickable(actionStartActivity<MainActivity>())
-
+private fun base(s: WidgetSettings) = GlanceModifier.fillMaxSize().padding(s.padding.dp).background(ColorProvider(wc(s.backgroundColor, s.backgroundAlpha))).clickable(actionStartActivity<MainActivity>())
+private fun text(s: WidgetSettings) = TextStyle(color = ColorProvider(wc(s.textColor)), fontSize = s.textSize.sp)
+private fun accent(s: WidgetSettings) = TextStyle(color = ColorProvider(wc(s.accentColor)), fontSize = s.textSize.sp)
 private fun nextSummerVacation(): LocalDate {
-    val today = LocalDate.now()
-    var year = today.year
-    fun vacationStart(y: Int): LocalDate {
-        var lastFriday = LocalDate.of(y, 6, 30)
-        while (lastFriday.dayOfWeek != DayOfWeek.FRIDAY) lastFriday = lastFriday.minusDays(1)
-        return lastFriday.plusDays(1)
-    }
-    var target = vacationStart(year)
-    if (!today.isBefore(target)) target = vacationStart(++year)
-    return target
+    val today = LocalDate.now(); var year = today.year
+    fun start(y: Int): LocalDate { var d = LocalDate.of(y, 6, 30); while (d.dayOfWeek != DayOfWeek.FRIDAY) d = d.minusDays(1); return d.plusDays(1) }
+    var target = start(year); if (!today.isBefore(target)) target = start(++year); return target
 }
 
 class VacationCountdownWidget : GlanceAppWidget() {
-    override suspend fun provideGlance(context: Context, id: GlanceId) {
-        provideContent {
-            val days = ChronoUnit.DAYS.between(LocalDate.now(), nextSummerVacation())
-            Column(baseWidget()) {
-                Text("☀️ WAKACJE", style = TextStyle(color = widgetAccent, fontSize = 18.sp))
-                Spacer(GlanceModifier.padding(4.dp))
-                Text("$days", style = TextStyle(color = widgetWhite, fontSize = 38.sp))
-                Text(if (days == 1L) "dzień" else "dni", style = TextStyle(color = widgetWhite, fontSize = 16.sp))
-                Text("do rozpoczęcia wakacji", style = TextStyle(color = widgetWhite, fontSize = 12.sp))
-            }
+    override suspend fun provideGlance(context: Context, id: GlanceId) { provideContent {
+        val s = WidgetSettingsStore(context).load("vacation"); val days = ChronoUnit.DAYS.between(LocalDate.now(), nextSummerVacation())
+        Column(base(s)) {
+            Text("☀️ WAKACJE", style = accent(s)); Text("$days", style = TextStyle(color = ColorProvider(wc(s.textColor)), fontSize = s.priceSize.sp))
+            Text(if (days == 1L) "dzień" else "dni", style = text(s)); Text("do rozpoczęcia wakacji", style = TextStyle(color = ColorProvider(wc(s.textColor)), fontSize = s.changeSize.sp))
         }
-    }
+    }}
 }
+class VacationCountdownWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = VacationCountdownWidget() }
 
-class VacationCountdownWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = VacationCountdownWidget()
-}
-
-private fun signalFor(quote: Quote?): String = when {
-    quote?.change24h == null -> "BRAK DANYCH"
-    quote.change24h >= 3.0 -> "KUP"
-    quote.change24h <= -3.0 -> "SPRZEDAJ"
-    else -> "OBSERWUJ"
-}
-
+private fun signalFor(q: Quote?): String = when { q?.change24h == null -> "BRAK DANYCH"; q.change24h >= 3.0 -> "KUP"; q.change24h <= -3.0 -> "SPRZEDAJ"; else -> "OBSERWUJ" }
 class MarketSignalWidget : GlanceAppWidget() {
-    override suspend fun provideGlance(context: Context, id: GlanceId) {
-        provideContent {
-            val asset = SettingsStore(context).loadAssets().firstOrNull()
-            val quote = asset?.let { MarketRepository(context).cachedQuote(it.symbol) }
-            val signal = signalFor(quote)
-            val signalColor = when (signal) {
-                "KUP" -> widgetPositive
-                "SPRZEDAJ" -> widgetNegative
-                else -> widgetAccent
-            }
-            Column(baseWidget()) {
-                Text("MARKET SIGNAL", style = TextStyle(color = widgetWhite, fontSize = 14.sp))
-                Spacer(GlanceModifier.padding(4.dp))
-                Text(asset?.symbol ?: "Dodaj aktywo", style = TextStyle(color = widgetAccent, fontSize = 20.sp))
-                Text(signal, style = TextStyle(color = signalColor, fontSize = 30.sp))
-                Text(quote?.change24h?.let { "24h: ${String.format("%+.2f%%", it)}" } ?: "Brak danych", style = TextStyle(color = widgetWhite, fontSize = 12.sp))
-                Text("Sygnał heurystyczny — nie jest poradą inwestycyjną", style = TextStyle(color = widgetWhite, fontSize = 9.sp))
-            }
+    override suspend fun provideGlance(context: Context, id: GlanceId) { provideContent {
+        val s = WidgetSettingsStore(context).load("signal"); val asset = SettingsStore(context).loadAssets().firstOrNull(); val q = asset?.let { MarketRepository(context).cachedQuote(it.symbol) }; val signal = signalFor(q)
+        val signalColor = when (signal) { "KUP" -> wc(s.positiveColor); "SPRZEDAJ" -> wc(s.negativeColor); else -> wc(s.accentColor) }
+        Column(base(s)) {
+            Text("MARKET SIGNAL", style = accent(s)); Text(asset?.symbol ?: "Dodaj aktywo", style = text(s)); Text(signal, style = TextStyle(color = ColorProvider(signalColor), fontSize = s.priceSize.sp))
+            if (s.showChange) Text(q?.change24h?.let { "24h: ${String.format("%+.2f%%", it)}" } ?: "Brak danych", style = text(s))
+            Text("Sygnał heurystyczny — nie jest poradą inwestycyjną", style = TextStyle(color = ColorProvider(wc(s.textColor)), fontSize = 9.sp))
         }
-    }
+    }}
 }
-
-class MarketSignalWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = MarketSignalWidget()
-}
+class MarketSignalWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = MarketSignalWidget() }
 
 class MarketOverviewWidget : GlanceAppWidget() {
-    override suspend fun provideGlance(context: Context, id: GlanceId) {
-        provideContent {
-            val assets = SettingsStore(context).loadAssets()
-            val repo = MarketRepository(context)
-            val quotes = assets.mapNotNull { asset -> repo.cachedQuote(asset.symbol)?.let { asset to it } }
-            val up = quotes.count { (it.second.change24h ?: 0.0) > 0 }
-            val down = quotes.count { (it.second.change24h ?: 0.0) < 0 }
-            Column(baseWidget()) {
-                Text("MARKET OVERVIEW", style = TextStyle(color = widgetAccent, fontSize = 17.sp))
-                Spacer(GlanceModifier.padding(4.dp))
-                Text("Aktywa: ${assets.size}", style = TextStyle(color = widgetWhite, fontSize = 16.sp))
-                Row {
-                    Text("▲ $up", style = TextStyle(color = widgetPositive, fontSize = 15.sp))
-                    Spacer(GlanceModifier.width(14.dp))
-                    Text("▼ $down", style = TextStyle(color = widgetNegative, fontSize = 15.sp))
-                }
-                Text("Dane z ostatniego odświeżenia", style = TextStyle(color = widgetWhite, fontSize = 10.sp))
-            }
-        }
-    }
+    override suspend fun provideGlance(context: Context, id: GlanceId) { provideContent {
+        val s = WidgetSettingsStore(context).load("overview"); val assets = SettingsStore(context).loadAssets(); val repo = MarketRepository(context); val quotes = assets.mapNotNull { a -> repo.cachedQuote(a.symbol)?.let { a to it } }; val up = quotes.count { (it.second.change24h ?: 0.0) > 0 }; val down = quotes.count { (it.second.change24h ?: 0.0) < 0 }
+        Column(base(s)) { Text("MARKET OVERVIEW", style = accent(s)); Text("Aktywa: ${assets.size}", style = text(s)); Row { Text("▲ $up", style = TextStyle(color = ColorProvider(wc(s.positiveColor)), fontSize = s.changeSize.sp)); Spacer(GlanceModifier.width(14.dp)); Text("▼ $down", style = TextStyle(color = ColorProvider(wc(s.negativeColor)), fontSize = s.changeSize.sp)) }; Text("Dane z ostatniego odświeżenia", style = text(s)) }
+    }}
 }
-
-class MarketOverviewWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = MarketOverviewWidget()
-}
+class MarketOverviewWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = MarketOverviewWidget() }
 
 class TopMoverWidget : GlanceAppWidget() {
-    override suspend fun provideGlance(context: Context, id: GlanceId) {
-        provideContent {
-            val repo = MarketRepository(context)
-            val mover = SettingsStore(context).loadAssets().mapNotNull { asset ->
-                repo.cachedQuote(asset.symbol)?.change24h?.let { asset to it }
-            }.maxByOrNull { kotlin.math.abs(it.second) }
-            Column(baseWidget()) {
-                Text("TOP MOVER", style = TextStyle(color = widgetAccent, fontSize = 17.sp))
-                Spacer(GlanceModifier.padding(4.dp))
-                if (mover != null) {
-                    Text(mover.first.symbol, style = TextStyle(color = widgetWhite, fontSize = 22.sp))
-                    Text(String.format("%+.2f%%", mover.second), style = TextStyle(color = if (mover.second >= 0) widgetPositive else widgetNegative, fontSize = 28.sp))
-                    Text("największa zmiana 24h na liście", style = TextStyle(color = widgetWhite, fontSize = 10.sp))
-                } else {
-                    Text("Brak danych", style = TextStyle(color = widgetWhite, fontSize = 16.sp))
-                }
-            }
-        }
-    }
+    override suspend fun provideGlance(context: Context, id: GlanceId) { provideContent {
+        val s = WidgetSettingsStore(context).load("top_mover"); val repo = MarketRepository(context); val mover = SettingsStore(context).loadAssets().mapNotNull { a -> repo.cachedQuote(a.symbol)?.change24h?.let { a to it } }.maxByOrNull { kotlin.math.abs(it.second) }
+        Column(base(s)) { Text("TOP MOVER", style = accent(s)); if (mover != null) { Text(mover.first.symbol, style = text(s)); Text(String.format("%+.2f%%", mover.second), style = TextStyle(color = ColorProvider(wc(if (mover.second >= 0) s.positiveColor else s.negativeColor)), fontSize = s.priceSize.sp)); Text("największa zmiana 24h na liście", style = text(s)) } else Text("Brak danych", style = text(s)) }
+    }}
 }
-
-class TopMoverWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = TopMoverWidget()
-}
+class TopMoverWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = TopMoverWidget() }
