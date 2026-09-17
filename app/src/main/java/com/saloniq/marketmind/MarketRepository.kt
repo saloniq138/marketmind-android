@@ -18,121 +18,32 @@ class MarketRepository(private val context: Context) {
 
     suspend fun fetchNvidiaModels(): NvidiaModelsResult = withContext(Dispatchers.IO) {
         val key = settings.getNvidiaApiKey().trim()
-        if (key.isBlank()) {
-            return@withContext NvidiaModelsResult(
-                false,
-                emptyList(),
-                "Add your NVIDIA API key first."
-            )
-        }
-
-        val request = Request.Builder()
-            .url("https://integrate.api.nvidia.com/v1/models")
-            .addHeader("Authorization", "Bearer $key")
-            .addHeader("Accept", "application/json")
-            .get()
-            .build()
-
-        runCatching {
-            client.newCall(request).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    return@use NvidiaModelsResult(
-                        false,
-                        emptyList(),
-                        formatNvidiaError(response.code, body)
-                    )
-                }
-
-                val models = runCatching {
-                    val data = JSONObject(body).optJSONArray("data") ?: JSONArray()
-                    buildList {
-                        for (i in 0 until data.length()) {
-                            val id = data.optJSONObject(i)?.optString("id").orEmpty()
-                            if (id.isNotBlank() && isChatModel(id)) add(id)
-                        }
-                    }.distinct().sorted()
-                }.getOrDefault(emptyList())
-
-                if (models.isEmpty()) {
-                    NvidiaModelsResult(
-                        false,
-                        emptyList(),
-                        "NVIDIA returned no compatible chat models."
-                    )
-                } else {
-                    NvidiaModelsResult(
-                        true,
-                        models,
-                        "Found ${models.size} compatible NVIDIA NIM models."
-                    )
-                }
-            }
-        }.getOrElse { error ->
-            NvidiaModelsResult(
-                false,
-                emptyList(),
-                "Connection error: ${error.message ?: "unknown network error"}"
-            )
-        }
+        if (key.isBlank()) return@withContext NvidiaModelsResult(false, emptyList(), "Add your NVIDIA API key first.")
+        val request = Request.Builder().url("https://integrate.api.nvidia.com/v1/models").addHeader("Authorization", "Bearer $key").addHeader("Accept", "application/json").get().build()
+        runCatching { client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) return@use NvidiaModelsResult(false, emptyList(), formatNvidiaError(response.code, body))
+            val models = runCatching { val data = JSONObject(body).optJSONArray("data") ?: JSONArray(); buildList { for (i in 0 until data.length()) { val id = data.optJSONObject(i)?.optString("id").orEmpty(); if (id.isNotBlank() && isChatModel(id)) add(id) } }.distinct().sorted() }.getOrDefault(emptyList())
+            if (models.isEmpty()) NvidiaModelsResult(false, emptyList(), "NVIDIA returned no compatible chat models.") else NvidiaModelsResult(true, models, "Found ${models.size} compatible NVIDIA NIM models.")
+        }}.getOrElse { NvidiaModelsResult(false, emptyList(), "Connection error: ${it.message ?: "unknown network error"}") }
     }
 
-    private fun isChatModel(id: String): Boolean {
-        val value = id.lowercase()
-        val excluded = listOf(
-            "embed", "rerank", "tts", "asr", "ocr", "translate",
-            "safety", "guard", "parse", "image", "video", "vision"
-        )
-        return excluded.none { value.contains(it) }
-    }
+    private fun isChatModel(id: String): Boolean = listOf("embed", "rerank", "tts", "asr", "ocr", "translate", "safety", "guard", "parse", "image", "video", "vision").none { id.lowercase().contains(it) }
 
     suspend fun testNvidiaApi(): NvidiaApiResult = withContext(Dispatchers.IO) {
         val key = settings.getNvidiaApiKey().trim()
         if (key.isBlank()) return@withContext NvidiaApiResult(false, "No NVIDIA API key is saved.")
-
-        val payload = JSONObject()
-            .put("model", settings.model())
-            .put("temperature", 0.0)
-            .put("max_tokens", 1)
-            .put("messages", JSONArray()
-                .put(JSONObject().put("role", "user").put("content", "Reply with OK.")))
-
-        val request = Request.Builder()
-            .url("https://integrate.api.nvidia.com/v1/chat/completions")
-            .addHeader("Authorization", "Bearer $key")
-            .addHeader("Accept", "application/json")
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-
-        runCatching {
-            client.newCall(request).execute().use { response ->
-                val body = response.body?.string().orEmpty()
-                if (response.isSuccessful) {
-                    NvidiaApiResult(true, "API OK — NVIDIA NIM is reachable and the selected model works.")
-                } else {
-                    NvidiaApiResult(false, formatNvidiaError(response.code, body))
-                }
-            }
-        }.getOrElse { error ->
-            NvidiaApiResult(false, "Connection error: ${error.message ?: "unknown network error"}")
-        }
+        val payload = JSONObject().put("model", settings.model()).put("temperature", 0.0).put("max_tokens", 1).put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "Reply with OK.")))
+        val request = Request.Builder().url("https://integrate.api.nvidia.com/v1/chat/completions").addHeader("Authorization", "Bearer $key").addHeader("Accept", "application/json").post(payload.toString().toRequestBody("application/json".toMediaType())).build()
+        runCatching { client.newCall(request).execute().use { response -> val body = response.body?.string().orEmpty(); if (response.isSuccessful) NvidiaApiResult(true, "API OK — NVIDIA NIM is reachable and the selected model works.") else NvidiaApiResult(false, formatNvidiaError(response.code, body)) }}.getOrElse { NvidiaApiResult(false, "Connection error: ${it.message ?: "unknown network error"}") }
     }
 
     private fun formatNvidiaError(code: Int, body: String): String {
-        val detail = runCatching {
-            val json = JSONObject(body)
-            json.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() }
-                ?: json.optString("message").takeIf { it.isNotBlank() }
-        }.getOrNull()
-        return if (detail != null) "NVIDIA API error $code: $detail"
-        else "NVIDIA API error $code: ${body.take(300).ifBlank { "no error details returned" }}"
+        val detail = runCatching { val json = JSONObject(body); json.optJSONObject("error")?.optString("message")?.takeIf { it.isNotBlank() } ?: json.optString("message").takeIf { it.isNotBlank() } }.getOrNull()
+        return if (detail != null) "NVIDIA API error $code: $detail" else "NVIDIA API error $code: ${body.take(300).ifBlank { "no error details returned" }}"
     }
 
-    suspend fun fetchQuote(asset: Asset): Quote = withContext(Dispatchers.IO) {
-        runCatching {
-            if (asset.type == "Crypto") fetchCrypto(asset) else fetchStock(asset)
-        }.getOrElse { Quote(signal = "Data unavailable") }
-    }
+    suspend fun fetchQuote(asset: Asset): Quote = withContext(Dispatchers.IO) { runCatching { if (asset.type == "Crypto") fetchCrypto(asset) else fetchStock(asset) }.getOrElse { Quote(signal = "Data unavailable") } }
 
     private fun fetchCrypto(asset: Asset): Quote {
         val id = asset.coinId ?: asset.symbol.lowercase()
@@ -160,66 +71,33 @@ class MarketRepository(private val context: Context) {
         val key = settings.getNvidiaApiKey()
         if (key.isBlank()) return@withContext "Add your NVIDIA API key in Settings to enable AI analysis."
         val prompt = "Analyze ${asset.name} (${asset.symbol}). Current price: ${quote.price ?: "unknown"}. 24h change: ${quote.change24h ?: "unknown"}%. Give a short factual market summary, risks, and technical considerations. Do not present it as guaranteed investment advice."
-        val payload = JSONObject()
-            .put("model", settings.model())
-            .put("temperature", 0.2)
-            .put("max_tokens", 300)
-            .put("messages", JSONArray()
-                .put(JSONObject().put("role", "system").put("content", "You are a financial market analysis assistant. Be concise, evidence-aware and clearly state uncertainty."))
-                .put(JSONObject().put("role", "user").put("content", prompt)))
-        val request = Request.Builder()
-            .url("https://integrate.api.nvidia.com/v1/chat/completions")
-            .addHeader("Authorization", "Bearer $key")
-            .addHeader("Accept", "application/json")
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-        runCatching {
-            client.newCall(request).execute().use { response ->
-                val text = response.body?.string().orEmpty()
-                if (!response.isSuccessful) formatNvidiaError(response.code, text)
-                else JSONObject(text).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
-            }
-        }.getOrElse { "NVIDIA analysis failed: ${it.message ?: "unknown error"}" }
+        val payload = JSONObject().put("model", settings.model()).put("temperature", 0.2).put("max_tokens", 300).put("messages", JSONArray().put(JSONObject().put("role", "system").put("content", "You are a financial market analysis assistant. Be concise, evidence-aware and clearly state uncertainty.")).put(JSONObject().put("role", "user").put("content", prompt)))
+        val request = Request.Builder().url("https://integrate.api.nvidia.com/v1/chat/completions").addHeader("Authorization", "Bearer $key").addHeader("Accept", "application/json").post(payload.toString().toRequestBody("application/json".toMediaType())).build()
+        runCatching { client.newCall(request).execute().use { response -> val text = response.body?.string().orEmpty(); if (!response.isSuccessful) formatNvidiaError(response.code, text) else JSONObject(text).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content") }}.getOrElse { "NVIDIA analysis failed: ${it.message ?: "unknown error"}" }
     }
 
     suspend fun refreshAll() {
         val assets = settings.loadAssets()
-        for (asset in assets) {
-            val quote = fetchQuote(asset)
-            saveQuote(asset.symbol, quote)
-        }
+        for (asset in assets) saveQuote(asset.symbol, fetchQuote(asset))
         MarketMindWidget().updateAll(context)
+        VacationCountdownWidget().updateAll(context)
+        MarketSignalWidget().updateAll(context)
+        MarketOverviewWidget().updateAll(context)
+        TopMoverWidget().updateAll(context)
     }
 
     fun cachedQuote(symbol: String): Quote? {
         val prefs = context.getSharedPreferences("market_quotes", Context.MODE_PRIVATE)
         val raw = prefs.getString(symbol, null) ?: return null
-        return runCatching {
-            val json = JSONObject(raw)
-            Quote(
-                price = if (json.has("price") && !json.isNull("price")) json.getDouble("price") else null,
-                change24h = if (json.has("change24h") && !json.isNull("change24h")) json.getDouble("change24h") else null,
-                signal = json.optString("signal", "Waiting for analysis"),
-                updatedAt = json.optLong("updatedAt", System.currentTimeMillis())
-            )
-        }.getOrNull()
+        return runCatching { val json = JSONObject(raw); Quote(price = if (json.has("price") && !json.isNull("price")) json.getDouble("price") else null, change24h = if (json.has("change24h") && !json.isNull("change24h")) json.getDouble("change24h") else null, signal = json.optString("signal", "Waiting for analysis"), updatedAt = json.optLong("updatedAt", System.currentTimeMillis())) }.getOrNull()
     }
 
     private fun saveQuote(symbol: String, quote: Quote) {
-        val json = JSONObject()
-            .put("price", quote.price)
-            .put("change24h", quote.change24h)
-            .put("signal", quote.signal)
-            .put("updatedAt", quote.updatedAt)
-        context.getSharedPreferences("market_quotes", Context.MODE_PRIVATE)
-            .edit().putString(symbol, json.toString()).apply()
+        val json = JSONObject().put("price", quote.price).put("change24h", quote.change24h).put("signal", quote.signal).put("updatedAt", quote.updatedAt)
+        context.getSharedPreferences("market_quotes", Context.MODE_PRIVATE).edit().putString(symbol, json.toString()).apply()
     }
 
-    private fun request(url: String): String? = runCatching {
-        client.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
-            if (response.isSuccessful) response.body?.string() else null
-        }
-    }.getOrNull()
+    private fun request(url: String): String? = runCatching { client.newCall(Request.Builder().url(url).get().build()).execute().use { response -> if (response.isSuccessful) response.body?.string() else null } }.getOrNull()
 
     private fun signalFromChange(change: Double?): String = when {
         change == null -> "Waiting for analysis"
