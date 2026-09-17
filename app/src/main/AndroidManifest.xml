@@ -17,15 +17,25 @@
             </intent-filter>
         </activity>
 
-        <receiver
-            android:name=".MarketMindWidgetReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/marketmind_widget_info" />
+        <receiver android:name=".MarketMindWidgetReceiver" android:exported="true">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/marketmind_widget_info" />
+        </receiver>
+        <receiver android:name=".VacationCountdownWidgetReceiver" android:exported="true">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/vacation_widget_info" />
+        </receiver>
+        <receiver android:name=".MarketSignalWidgetReceiver" android:exported="true">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/market_signal_widget_info" />
+        </receiver>
+        <receiver android:name=".MarketOverviewWidgetReceiver" android:exported="true">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/market_overview_widget_info" />
+        </receiver>
+        <receiver android:name=".TopMoverWidgetReceiver" android:exported="true">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/top_mover_widget_info" />
         </receiver>
     </application>
 </manifest>
