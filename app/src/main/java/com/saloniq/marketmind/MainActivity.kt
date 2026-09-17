@@ -39,8 +39,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
-private const val DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,15 +57,11 @@ private fun MarketMindApp() {
     LaunchedEffect(refreshKey) { withContext(Dispatchers.IO) { repository.refreshAll() } }
     when (screen) {
         "add" -> AddAssetScreen({ screen = "dashboard" }) { asset ->
-            if (watchlist.none { it.symbol.equals(asset.symbol, true) }) {
-                watchlist.add(asset); settings.saveAssets(watchlist); refreshKey++
-            }
+            if (watchlist.none { it.symbol.equals(asset.symbol, true) }) { watchlist.add(asset); settings.saveAssets(watchlist); refreshKey++ }
             screen = "dashboard"
         }
         "settings" -> SettingsScreen(settings, repository, { screen = "dashboard" }) { refreshKey++ }
-        else -> DashboardScreen(watchlist, repository, { screen = "add" }, { screen = "settings" }, { asset ->
-            watchlist.remove(asset); settings.saveAssets(watchlist)
-        }) { refreshKey++ }
+        else -> DashboardScreen(watchlist, repository, { screen = "add" }, { screen = "settings" }, { asset -> watchlist.remove(asset); settings.saveAssets(watchlist) }) { refreshKey++ }
     }
 }
 
@@ -76,9 +70,11 @@ private fun DashboardScreen(assets: List<Asset>, repository: MarketRepository, o
     var aiText by remember { mutableStateOf("") }
     var aiLoading by remember { mutableStateOf(false) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val aiSettings = remember { AiProviderSettings(context) }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(16.dp), Arrangement.SpaceBetween) {
-            Column { Text("MarketMind", style = MaterialTheme.typography.headlineMedium); Text("Stocks + crypto • NVIDIA NIM") }
+            Column { Text("MarketMind", style = MaterialTheme.typography.headlineMedium); Text("Stocks + crypto • ${aiSettings.provider().label}") }
             OutlinedButton(onClick = onSettings) { Text("Settings") }
         }
         LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -88,14 +84,14 @@ private fun DashboardScreen(assets: List<Asset>, repository: MarketRepository, o
                     aiLoading = true
                     scope.launch {
                         val quote = withContext(Dispatchers.IO) { repository.fetchQuote(asset) }
-                        aiText = withContext(Dispatchers.IO) { repository.analyzeWithNvidia(asset, quote) }
+                        aiText = withContext(Dispatchers.IO) { AiClient(context).analyze(asset, quote) }
                         aiLoading = false
                     }
                 }, { onRemove(asset) })
             }
             item {
                 Button(onClick = onAdd, modifier = Modifier.fillMaxWidth()) { Text("Add stock or crypto") }
-                if (aiLoading) Text("NVIDIA is analyzing…", modifier = Modifier.padding(top = 8.dp))
+                if (aiLoading) Text("AI is analyzing…", modifier = Modifier.padding(top = 8.dp))
                 if (aiText.isNotBlank()) Card(Modifier.fillMaxWidth()) { Text(aiText, Modifier.padding(16.dp)) }
                 Spacer(Modifier.height(24.dp))
             }
@@ -137,19 +133,11 @@ private fun AddAssetScreen(onBack: () -> Unit, onAdd: (Asset) -> Unit) {
         OutlinedTextField(value = symbol, onValueChange = { symbol = it.uppercase() }, label = { Text("Ticker / symbol") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { type = "Stock" }) { Text("Stock") }
-            OutlinedButton(onClick = { type = "Crypto" }) { Text("Crypto") }
-        }
-        if (type == "Stock") {
-            OutlinedTextField(value = marketSymbol, onValueChange = { marketSymbol = it }, label = { Text("Market ticker, e.g. TSLA or CDR.WA") }, modifier = Modifier.fillMaxWidth())
-        } else {
-            OutlinedTextField(value = coinId, onValueChange = { coinId = it.lowercase() }, label = { Text("CoinGecko ID, e.g. bitcoin") }, modifier = Modifier.fillMaxWidth())
-        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { type = "Stock" }) { Text("Stock") }; OutlinedButton(onClick = { type = "Crypto" }) { Text("Crypto") } }
+        if (type == "Stock") OutlinedTextField(value = marketSymbol, onValueChange = { marketSymbol = it }, label = { Text("Market ticker, e.g. TSLA or CDR.WA") }, modifier = Modifier.fillMaxWidth())
+        else OutlinedTextField(value = coinId, onValueChange = { coinId = it.lowercase() }, label = { Text("CoinGecko ID, e.g. bitcoin") }, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(16.dp))
-        Button(onClick = {
-            if (symbol.isNotBlank()) onAdd(Asset(symbol, name.ifBlank { symbol }, type, marketSymbol.ifBlank { symbol }, coinId.ifBlank { null }))
-        }, enabled = symbol.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Add to watchlist") }
+        Button(onClick = { if (symbol.isNotBlank()) onAdd(Asset(symbol, name.ifBlank { symbol }, type, marketSymbol.ifBlank { symbol }, coinId.ifBlank { null })) }, enabled = symbol.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Add to watchlist") }
         OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
     }
 }
@@ -158,60 +146,63 @@ private fun AddAssetScreen(onBack: () -> Unit, onAdd: (Asset) -> Unit) {
 private fun SettingsScreen(settings: SettingsStore, repository: MarketRepository, onBack: () -> Unit, onSaved: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    var apiKey by remember { mutableStateOf(settings.getNvidiaApiKey()) }
-    var model by remember { mutableStateOf(settings.model().takeUnless { it == "meta/llama-3.1-8b-instruct" }.orEmpty().ifBlank { DEFAULT_NVIDIA_MODEL }) }
+    val ai = remember { AiProviderSettings(context) }
+    var provider by remember { mutableStateOf(ai.provider()) }
+    var apiKey by remember { mutableStateOf(ai.getKey()) }
+    var model by remember { mutableStateOf(ai.model()) }
     var models by remember { mutableStateOf(listOf<String>()) }
-    var modelStatus by remember { mutableStateOf("Load models from NVIDIA after saving your API key.") }
-    var loadingModels by remember { mutableStateOf(false) }
-    var apiStatus by remember { mutableStateOf(if (settings.hasNvidiaApiKey()) "Saved key — not tested yet." else "No API key saved yet.") }
+    var modelStatus by remember { mutableStateOf("Load models after saving your API key.") }
+    var apiStatus by remember { mutableStateOf(if (ai.hasKey()) "Saved key — not tested yet." else "No API key saved yet.") }
     var testing by remember { mutableStateOf(false) }
+    var loadingModels by remember { mutableStateOf(false) }
     var minutes by remember { mutableStateOf(settings.refreshMinutes().toString()) }
     var notifications by remember { mutableStateOf(settings.notificationsEnabled()) }
+
+    fun switchProvider(next: AiProvider) {
+        provider = next
+        ai.setProvider(next)
+        apiKey = ai.getKey()
+        model = ai.model()
+        models = emptyList()
+        modelStatus = "Save the ${next.label} key, then load its models."
+        apiStatus = if (ai.hasKey()) "Saved key — not tested yet." else "No ${next.label} API key saved."
+    }
 
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Text("Settings", style = MaterialTheme.typography.headlineMedium)
-            Text("NVIDIA NIM", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 16.dp))
-            OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("NVIDIA API key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-            Text(if (settings.hasNvidiaApiKey()) "API key is saved securely on this device." else "No API key saved yet.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+            Text("AI provider", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 16.dp))
+            Text("Choose which provider powers market analysis. Keys are encrypted on this device.", style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AiProvider.values().forEach { option ->
+                    if (option == provider) Button(onClick = { switchProvider(option) }, modifier = Modifier.weight(1f)) { Text(option.label) }
+                    else OutlinedButton(onClick = { switchProvider(option) }, modifier = Modifier.weight(1f)) { Text(option.label) }
+                }
+            }
+            OutlinedTextField(value = apiKey, onValueChange = { apiKey = it }, label = { Text("${provider.label} API key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
             Text(apiStatus, modifier = Modifier.padding(vertical = 8.dp))
             Button(onClick = {
                 val key = apiKey.trim()
-                if (key.isEmpty()) { apiStatus = "Save error: NVIDIA API key is empty."; return@Button }
-                settings.setModel(model.trim().ifBlank { DEFAULT_NVIDIA_MODEL })
-                val result = settings.saveNvidiaApiKey(key)
-                if (result.isFailure) {
-                    val e = result.exceptionOrNull()
-                    apiStatus = "Save error: ${e?.javaClass?.simpleName}: ${e?.message ?: "unknown error"}"
-                    return@Button
-                }
-                testing = true; apiStatus = "API key saved. Testing NVIDIA API…"
-                scope.launch {
-                    val result2 = withContext(Dispatchers.IO) { repository.testNvidiaApi() }
-                    testing = false; apiStatus = result2.message
-                }
-            }, enabled = !testing, modifier = Modifier.fillMaxWidth()) { Text(if (testing) "Testing API…" else "Save & test NVIDIA API") }
+                if (key.isEmpty()) { apiStatus = "API key is empty."; return@Button }
+                ai.setProvider(provider); ai.setModel(model.trim().ifBlank { provider.defaultModel })
+                val save = ai.saveKey(key)
+                if (save.isFailure) { apiStatus = "Save error: ${save.exceptionOrNull()?.message ?: "unknown error"}"; return@Button }
+                testing = true; apiStatus = "Key saved. Testing ${provider.label}…"
+                scope.launch { val result = withContext(Dispatchers.IO) { AiClient(context).test() }; testing = false; apiStatus = result.message }
+            }, enabled = !testing, modifier = Modifier.fillMaxWidth()) { Text(if (testing) "Testing API…" else "Save & test API") }
 
             Spacer(Modifier.height(8.dp))
-            Text("NIM model", style = MaterialTheme.typography.titleMedium)
+            Text("Model", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(value = model, onValueChange = { model = it }, label = { Text("Model ID") }, modifier = Modifier.fillMaxWidth())
-            Text("Current default: $DEFAULT_NVIDIA_MODEL", style = MaterialTheme.typography.bodySmall)
+            Text("Default: ${provider.defaultModel}", style = MaterialTheme.typography.bodySmall)
             Button(onClick = {
-                if (!settings.hasNvidiaApiKey()) { modelStatus = "Save an NVIDIA API key first."; return@Button }
-                loadingModels = true; modelStatus = "Loading available models from NVIDIA…"
-                scope.launch {
-                    val result = withContext(Dispatchers.IO) { repository.fetchNvidiaModels() }
-                    loadingModels = false; models = result.models; modelStatus = result.message
-                }
-            }, enabled = !loadingModels, modifier = Modifier.fillMaxWidth()) { Text(if (loadingModels) "Loading models…" else "Load available NVIDIA models") }
+                if (!ai.hasKey()) { modelStatus = "Save the API key first."; return@Button }
+                loadingModels = true; modelStatus = "Loading available ${provider.label} models…"
+                scope.launch { val result = withContext(Dispatchers.IO) { AiClient(context).models() }; loadingModels = false; models = result.models; modelStatus = result.message }
+            }, enabled = !loadingModels, modifier = Modifier.fillMaxWidth()) { Text(if (loadingModels) "Loading models…" else "Load available models") }
             Text(modelStatus, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 4.dp))
             if (models.isNotEmpty()) {
-                Text("Available chat models", style = MaterialTheme.typography.titleMedium)
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    models.forEach { id ->
-                        OutlinedButton(onClick = { model = id }, modifier = Modifier.fillMaxWidth()) { Text(if (id == model) "✓ $id" else id) }
-                    }
-                }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { models.forEach { id -> OutlinedButton(onClick = { model = id }, modifier = Modifier.fillMaxWidth()) { Text(if (id == model) "✓ $id" else id) } } }
             }
 
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
@@ -222,16 +213,8 @@ private fun SettingsScreen(settings: SettingsStore, repository: MarketRepository
         item { WidgetAppearanceControls() }
         item {
             Button(onClick = {
-                val key = apiKey.trim()
-                if (key.isNotEmpty()) {
-                    val save = settings.saveNvidiaApiKey(key)
-                    if (save.isFailure) {
-                        val e = save.exceptionOrNull()
-                        apiStatus = "Save error: ${e?.javaClass?.simpleName}: ${e?.message ?: "unknown error"}"
-                        return@Button
-                    }
-                }
-                settings.setModel(model.trim().ifBlank { DEFAULT_NVIDIA_MODEL })
+                ai.setProvider(provider); ai.setModel(model.trim().ifBlank { provider.defaultModel })
+                if (apiKey.isNotBlank()) ai.saveKey(apiKey.trim())
                 settings.setNotificationsEnabled(notifications)
                 val period = minutes.toLongOrNull()?.coerceIn(15L, 1440L) ?: 60L
                 settings.setRefreshMinutes(period)
