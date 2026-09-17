@@ -51,6 +51,9 @@ class AiProviderSettings(context: Context) {
         }
     }
 
+    // Backward-compatible helper used by the existing Settings screen.
+    fun saveKey(value: String): Result<Unit> = addKey(value)
+
     fun removeKey(index: Int): Boolean {
         val p = provider()
         val keys = getKeys().toMutableList()
@@ -59,7 +62,7 @@ class AiProviderSettings(context: Context) {
         val oldCount = prefs.getInt("key_count_${p.name}", 0)
         val editor = prefs.edit()
         (0 until oldCount).forEach { i ->
-            editor.remove("key_${p.name}_$i_data").remove("key_${p.name}_$i_iv")
+            editor.remove("key_${p.name}_${i}_data").remove("key_${p.name}_${i}_iv")
         }
         keys.forEachIndexed { i, key ->
             val encrypted = encryptValue(key)
