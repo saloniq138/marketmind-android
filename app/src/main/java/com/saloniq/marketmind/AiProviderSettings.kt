@@ -18,26 +18,26 @@ enum class AiProvider(val label: String, val defaultModel: String, val baseUrl: 
 }
 
 class AiProviderSettings(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences("marketmind_ai", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("marketmind_ai", Context.MODE_PRIVATE)
     private val keyAlias = "marketmind_ai_keys_v1"
 
-    fun provider(): AiProvider = runCatching {
-        AiProvider.valueOf(prefs.getString("provider", AiProvider.NVIDIA.name) ?: AiProvider.NVIDIA.name)
-    }.getOrDefault(AiProvider.NVIDIA)
-
+    fun provider(): AiProvider = runCatching { AiProvider.valueOf(prefs.getString("provider", AiProvider.NVIDIA.name) ?: AiProvider.NVIDIA.name) }.getOrDefault(AiProvider.NVIDIA)
     fun setProvider(value: AiProvider) = prefs.edit().putString("provider", value.name).apply()
-
     fun model(): String = prefs.getString("model_${provider().name}", null).orEmpty().ifBlank { provider().defaultModel }
-
     fun setModel(value: String) = prefs.edit().putString("model_${provider().name}", value.trim()).apply()
-
     fun hasKey(): Boolean = getKey().isNotBlank()
 
-    fun getKey(): String = getEncrypted("key_${provider().name}")
+    fun getKey(): String {
+        val current = getEncrypted("key_${provider().name}")
+        if (current.isNotBlank()) return current
+        if (provider() == AiProvider.NVIDIA) return SettingsStore(appContext).getNvidiaApiKey()
+        return ""
+    }
 
     fun saveKey(value: String): Result<Unit> {
         val name = "key_${provider().name}"
-        if (value.trim().isEmpty()) return runCatching { prefs.edit().remove(name).commit(); Unit }
+        if (value.trim().isEmpty()) return runCatching { check(prefs.edit().remove("${name}_data").remove("${name}_iv").commit()) }
         return runCatching {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, secretKey())
@@ -63,13 +63,8 @@ class AiProviderSettings(context: Context) {
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (keyStore.getKey(keyAlias, null) as? SecretKey)?.let { return it }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-        generator.init(
-            KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                .setKeySize(128)
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .build()
-        )
+        generator.init(KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            .setKeySize(128).setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         return generator.generateKey()
     }
 }
