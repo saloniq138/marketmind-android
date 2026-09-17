@@ -22,11 +22,7 @@ class AiClient(context: Context) {
         val provider = settings.provider()
         val key = settings.getKey().trim()
         if (key.isBlank()) return@withContext AiApiResult(false, "No ${provider.label} API key is saved.")
-        val payload = JSONObject().put("model", settings.model()).put("temperature", 0.0).put("max_tokens", 1)
-            .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "Reply with OK.")))
-        val request = Request.Builder().url("${provider.baseUrl}/chat/completions")
-            .addHeader("Authorization", "Bearer $key").addHeader("Accept", "application/json")
-            .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
+        val request = requestFor("Reply with OK.", test = true, provider = provider, key = key)
         runCatching { client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (response.isSuccessful) AiApiResult(true, "API OK — ${provider.label} works with ${settings.model()}.")
@@ -59,17 +55,44 @@ class AiClient(context: Context) {
         val key = settings.getKey().trim()
         if (key.isBlank()) return@withContext "Add a ${provider.label} API key in Settings to enable AI analysis."
         val prompt = "Analyze ${asset.name} (${asset.symbol}). Current price: ${quote.price ?: "unknown"}. 24h change: ${quote.change24h ?: "unknown"}%. Give a short factual market summary, risks, and technical considerations. Do not present it as guaranteed investment advice."
-        val payload = JSONObject().put("model", settings.model()).put("temperature", 0.2).put("max_tokens", 300)
-            .put("messages", JSONArray()
-                .put(JSONObject().put("role", "system").put("content", "You are a concise, evidence-aware market analysis assistant. Clearly state uncertainty."))
-                .put(JSONObject().put("role", "user").put("content", prompt)))
-        val request = Request.Builder().url("${provider.baseUrl}/chat/completions").addHeader("Authorization", "Bearer $key").addHeader("Accept", "application/json")
-            .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
+        val request = requestFor(prompt, test = false, provider = provider, key = key)
         runCatching { client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) "${provider.label} error ${response.code}: ${errorMessage(body)}"
-            else JSONObject(body).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
+            else parseText(body, provider)
         }}.getOrElse { "${provider.label} analysis failed: ${it.message ?: "unknown error"}" }
+    }
+
+    private fun requestFor(prompt: String, test: Boolean, provider: AiProvider, key: String): Request {
+        return if (provider == AiProvider.OPENAI) {
+            val payload = JSONObject().put("model", settings.model()).put("input", prompt)
+            Request.Builder().url("https://api.openai.com/v1/responses").addHeader("Authorization", "Bearer $key").addHeader("Accept", "application/json")
+                .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
+        } else {
+            val payload = JSONObject().put("model", settings.model()).put("temperature", if (test) 0.0 else 0.2).put("max_tokens", if (test) 1 else 300)
+                .put("messages", JSONArray().apply {
+                    if (!test) put(JSONObject().put("role", "system").put("content", "You are a concise, evidence-aware market analysis assistant. Clearly state uncertainty."))
+                    put(JSONObject().put("role", "user").put("content", prompt))
+                })
+            Request.Builder().url("${provider.baseUrl}/chat/completions").addHeader("Authorization", "Bearer $key").addHeader("Accept", "application/json")
+                .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
+        }
+    }
+
+    private fun parseText(body: String, provider: AiProvider): String {
+        if (provider == AiProvider.OPENAI) {
+            val output = JSONObject(body).optJSONArray("output") ?: return "OpenAI returned no text."
+            for (i in 0 until output.length()) {
+                val item = output.optJSONObject(i) ?: continue
+                val content = item.optJSONArray("content") ?: continue
+                for (j in 0 until content.length()) {
+                    val text = content.optJSONObject(j)?.optString("text").orEmpty()
+                    if (text.isNotBlank()) return text
+                }
+            }
+            return "OpenAI returned no text."
+        }
+        return JSONObject(body).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
     }
 
     private fun isTextModel(id: String): Boolean {
