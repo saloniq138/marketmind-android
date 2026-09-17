@@ -22,14 +22,14 @@ import androidx.glance.unit.ColorProvider
 
 private fun compactColor(value: String, alphaPercent: Int? = null): Color = runCatching {
     val parsed = AndroidColor.parseColor(value)
-    val alpha = alphaPercent?.let { (it.coerceIn(0, 100) * 255 / 100) } ?: AndroidColor.alpha(parsed)
+    val alpha = alphaPercent?.let { it.coerceIn(0, 100) * 255 / 100 } ?: AndroidColor.alpha(parsed)
     Color(AndroidColor.argb(alpha, AndroidColor.red(parsed), AndroidColor.green(parsed), AndroidColor.blue(parsed)))
 }.getOrDefault(Color.White)
 
 class CompactMarketWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
-            val settings = WidgetSettingsStore(context).load()
+            val settings = WidgetSettingsStore(context).load("compact")
             val store = SettingsStore(context)
             val repository = MarketRepository(context)
             val asset = store.loadAssets().firstOrNull()
@@ -40,13 +40,7 @@ class CompactMarketWidget : GlanceAppWidget() {
             val negativeColor = compactColor(settings.negativeColor)
             val backgroundColor = compactColor(settings.backgroundColor, settings.backgroundAlpha)
             val change = quote?.change24h
-            Column(
-                GlanceModifier
-                    .fillMaxSize()
-                    .padding(settings.padding.dp)
-                    .background(ColorProvider(backgroundColor))
-                    .clickable(actionStartActivity<MainActivity>())
-            ) {
+            Column(GlanceModifier.fillMaxSize().padding(settings.padding.dp).background(ColorProvider(backgroundColor)).clickable(actionStartActivity<MainActivity>())) {
                 Text(asset?.symbol ?: "MarketMind", style = TextStyle(color = ColorProvider(accentColor), fontSize = settings.textSize.sp))
                 if (settings.showName && asset != null) Text(asset.name, style = TextStyle(color = ColorProvider(textColor), fontSize = settings.textSize.sp))
                 if (settings.showPrice) Text(quote?.price?.let { String.format("%.2f", it) } ?: "No market data", style = TextStyle(color = ColorProvider(textColor), fontSize = settings.priceSize.sp))
